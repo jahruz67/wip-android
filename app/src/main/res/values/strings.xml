@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Whisperflow</string>
+    <string name="accessibility_description">Detects text box focus and types dictated text.</string>
+</resources>

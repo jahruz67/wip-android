@@ -1,0 +1,20 @@
+# Gradle build cache
+.gradle/
+build/
+app/build/
+
+# IDE files
+.idea/
+*.iml
+local.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Other
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
