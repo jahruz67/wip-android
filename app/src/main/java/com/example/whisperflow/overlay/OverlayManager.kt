@@ -98,7 +98,7 @@ class OverlayManager(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.START
@@ -108,6 +108,7 @@ class OverlayManager(
 
     private var floatX = 50f
     private var floatY = 500f
+    private var lastUpdateTime = 0L
 
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -294,10 +295,14 @@ class OverlayManager(
                                     params.x = nextX
                                     params.y = nextY
 
-                                    try {
-                                        windowManager.updateViewLayout(this, params)
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
+                                    val currentTime = System.currentTimeMillis()
+                                    if (currentTime - lastUpdateTime > 14) {
+                                        try {
+                                            windowManager.updateViewLayout(this, params)
+                                            lastUpdateTime = currentTime
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
                                     }
                                 }
 
@@ -358,80 +363,80 @@ class OverlayManager(
         isShowing = false
     }
 
-@Composable
-fun DismissTargetUi(isNear: Boolean) {
-    val scale by animateFloatAsState(targetValue = if (isNear) 1.15f else 1.0f, label = "scale")
-    
-    Box(
-        modifier = Modifier
-            .width(192.dp)
-            .height(104.dp)
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        // Broad background visual gravity field
+    @Composable
+    fun DismissTargetUi(isNear: Boolean) {
+        val scale by animateFloatAsState(targetValue = if (isNear) 1.15f else 1.0f, label = "scale")
+        
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .shadow(
-                    elevation = if (isNear) 24.dp else 8.dp,
-                    shape = RoundedCornerShape(36.dp),
-                    spotColor = Color(0xFFEF4444),
-                    ambientColor = Color.Black
-                )
-                .clip(RoundedCornerShape(36.dp))
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF1E1015).copy(alpha = 0.95f),
-                            Color(0xFF0F080B).copy(alpha = 0.95f)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.5.dp,
-                    color = if (isNear) Color(0xFFEF4444) else Color(0xFFEF4444).copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(36.dp)
-                ),
+                .width(192.dp)
+                .height(104.dp)
+                .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 16.dp)
+            // Broad background visual gravity field
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .shadow(
+                        elevation = if (isNear) 24.dp else 8.dp,
+                        shape = RoundedCornerShape(36.dp),
+                        spotColor = Color(0xFFEF4444),
+                        ambientColor = Color.Black
+                    )
+                    .clip(RoundedCornerShape(36.dp))
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF1E1015).copy(alpha = 0.95f),
+                                Color(0xFF0F080B).copy(alpha = 0.95f)
+                            )
+                        )
+                    )
+                    .border(
+                        width = 1.5.dp,
+                        color = if (isNear) Color(0xFFEF4444) else Color(0xFFEF4444).copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(36.dp)
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                // Glowing crimson dot/icon
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(if (isNear) Color(0xFFEF4444) else Color(0xFFEF4444).copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss Icon",
-                        tint = if (isNear) Color.White else Color(0xFFEF4444),
-                        modifier = Modifier.size(20.dp)
+                    // Glowing crimson dot/icon
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (isNear) Color(0xFFEF4444) else Color(0xFFEF4444).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss Icon",
+                            tint = if (isNear) Color.White else Color(0xFFEF4444),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(10.dp))
+                    
+                    Text(
+                        text = if (isNear) "Release to Close" else "Drag here to close",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isNear) Color.White else Color(0xFF9CA3AF),
+                        fontFamily = FontFamily.SansSerif,
+                        letterSpacing = 0.5.sp
                     )
                 }
-                
-                Spacer(modifier = Modifier.width(10.dp))
-                
-                Text(
-                    text = if (isNear) "Release to Close" else "Drag here to close",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isNear) Color.White else Color(0xFF9CA3AF),
-                    fontFamily = FontFamily.SansSerif,
-                    letterSpacing = 0.5.sp
-                )
             }
         }
     }
-}
 }

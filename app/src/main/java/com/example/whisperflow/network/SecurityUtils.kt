@@ -4,18 +4,21 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
+import androidx.security.crypto.MasterKey
 
 object SecurityUtils {
     private const val SECURE_PREFS_FILE = "whisperflow_prefs_secure"
 
     fun getEncryptedSharedPreferences(context: Context): SharedPreferences {
         val securePrefs = try {
-            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            val mainKey = MasterKey.Builder(context.applicationContext)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
             EncryptedSharedPreferences.create(
-                SECURE_PREFS_FILE,
-                masterKeyAlias,
                 context.applicationContext,
+                SECURE_PREFS_FILE,
+                mainKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )

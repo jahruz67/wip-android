@@ -226,8 +226,8 @@ fun OverlayUi(
                         MotionEvent.ACTION_DOWN -> {
                             isDragging = false
                             isRecording = false
-                            touchState.startX = motionEvent.x
-                            touchState.startY = motionEvent.y
+                            touchState.startX = motionEvent.rawX
+                            touchState.startY = motionEvent.rawY
                             touchState.lastRawX = motionEvent.rawX
                             touchState.lastRawY = motionEvent.rawY
 
@@ -250,10 +250,10 @@ fun OverlayUi(
                             val dx = motionEvent.rawX - touchState.lastRawX
                             val dy = motionEvent.rawY - touchState.lastRawY
 
-                            val totalDistX = motionEvent.x - touchState.startX
-                            val totalDistY = motionEvent.y - touchState.startY
+                            val totalDistX = motionEvent.rawX - touchState.startX
+                            val totalDistY = motionEvent.rawY - touchState.startY
 
-                            if (!isDragging && (abs(totalDistX) > 20 || abs(totalDistY) > 20)) {
+                            if (!isDragging && (abs(totalDistX) > 10 || abs(totalDistY) > 10)) {
                                 isDragging = true
                                 onDragStart()
                                 recordJob?.cancel()
