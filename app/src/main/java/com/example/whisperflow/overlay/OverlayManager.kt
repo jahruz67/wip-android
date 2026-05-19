@@ -42,8 +42,12 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import android.media.MediaRecorder
 import com.example.whisperflow.audio.VoiceRecorder
 import com.example.whisperflow.network.GroqApiService
+import com.example.whisperflow.network.SecurityUtils
+import com.example.whisperflow.network.ChatRequest
+import com.example.whisperflow.network.ChatMessage
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -108,7 +112,26 @@ class OverlayManager(
 
     private var floatX = 50f
     private var floatY = 500f
-    private var lastUpdateTime = 0L
+    private var pendingX = 50
+    private var pendingY = 500
+    private var isFrameCallbackScheduled = false
+
+    private val frameCallback = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (isShowing) {
+                composeView?.let { view ->
+                    try {
+                        params.x = pendingX
+                        params.y = pendingY
+                        windowManager.updateViewLayout(view, params)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            isFrameCallbackScheduled = false
+        }
+    }
 
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -182,7 +205,9 @@ class OverlayManager(
     }
 
     private fun startRecording(): Boolean {
-        val recordingFile = voiceRecorder.startRecording()
+        val prefs = SecurityUtils.getEncryptedSharedPreferences(context)
+        val audioSource = prefs.getInt("audio_source", MediaRecorder.AudioSource.MIC)
+        val recordingFile = voiceRecorder.startRecording(audioSource)
         if (recordingFile == null) {
             overlayState.value = OverlayState.IDLE
             Toast.makeText(context, "Unable to start recording. Please try again.", Toast.LENGTH_SHORT).show()
@@ -206,9 +231,11 @@ class OverlayManager(
                 return@launch
             }
 
-            val sharedPrefs = com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(context)
+            val sharedPrefs = SecurityUtils.getEncryptedSharedPreferences(context)
             val apiKey = sharedPrefs.getString("api_key", "") ?: ""
             val modelName = sharedPrefs.getString("whisper_model", "whisper-large-v3") ?: "whisper-large-v3"
+            val aiEnhancementModel = sharedPrefs.getString("ai_enhancement_model", "none") ?: "none"
+            val targetLanguage = sharedPrefs.getString("target_language", "english") ?: "english"
 
             if (apiKey.isEmpty()) {
                 Toast.makeText(context, "Groq API Key is missing! Please configure it in Settings.", Toast.LENGTH_LONG).show()
@@ -217,22 +244,136 @@ class OverlayManager(
                 return@launch
             }
 
+            var finalText: String
+            var detectedLanguage: String?
+
             try {
                 val requestFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
                 val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
                 val modelPart = modelName.toRequestBody("text/plain".toMediaTypeOrNull())
-                
+                val responseFormatPart = "verbose_json".toRequestBody("text/plain".toMediaTypeOrNull())
+
+                // Step 1: Transcribe with Whisper (auto-detects language)
                 val response = withContext(Dispatchers.IO) {
                     apiService.transcribeAudio(
                         authHeader = "Bearer $apiKey",
                         file = filePart,
-                        model = modelPart
+                        model = modelPart,
+                        responseFormat = responseFormatPart
                     )
                 }
 
-                val transcribedText = response.text
-                if (transcribedText.isNotEmpty()) {
-                    onTextTranscribed(transcribedText)
+                val rawText = response.text
+                detectedLanguage = response.language
+
+                if (rawText.isEmpty()) {
+                    file.delete()
+                    overlayState.value = OverlayState.IDLE
+                    return@launch
+                }
+
+                // Step 2: Translation logic
+                // User picks a target language from settings
+                // Whisper detects the spoken language
+                // If detected != target → translate, otherwise keep as-is
+                val isTargetEnglish = targetLanguage.equals("english", ignoreCase = true)
+
+                if (!isTargetEnglish && detectedLanguage != null) {
+                    // Target is non-English (e.g. Spanish). Check if detected is English.
+                    val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
+                                            detectedLanguage.startsWith("english", ignoreCase = true)
+
+                    if (isDetectedEnglish) {
+                        // Detected English, user wants Spanish → translate to Spanish
+                        val translationRequest = ChatRequest(
+                            model = "llama-3.1-8b-instant",
+                            messages = listOf(
+                                ChatMessage("system", "You are a translator. Translate the following text to $targetLanguage. The original text is in English. Return ONLY the translated text, nothing else."),
+                                ChatMessage("user", rawText)
+                            ),
+                            temperature = 0.1f
+                        )
+
+                        val translationResponse = withContext(Dispatchers.IO) {
+                            apiService.chatCompletion(
+                                authHeader = "Bearer $apiKey",
+                                request = translationRequest
+                            )
+                        }
+                        finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
+                    } else {
+                        // Detected matches target (e.g. Spanish detected, target Spanish) → keep as-is
+                        finalText = rawText
+                    }
+                } else if (isTargetEnglish && detectedLanguage != null) {
+                    // Target is English. Check if detected is non-English.
+                    val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
+                                            detectedLanguage.startsWith("english", ignoreCase = true)
+
+                    if (!isDetectedEnglish) {
+                        // Detected non-English, user wants English → translate to English
+                        val translationRequest = ChatRequest(
+                            model = "llama-3.1-8b-instant",
+                            messages = listOf(
+                                ChatMessage("system", "You are a translator. Translate the following text to English. The original text is in $detectedLanguage. Return ONLY the translated text, nothing else."),
+                                ChatMessage("user", rawText)
+                            ),
+                            temperature = 0.1f
+                        )
+
+                        val translationResponse = withContext(Dispatchers.IO) {
+                            apiService.chatCompletion(
+                                authHeader = "Bearer $apiKey",
+                                request = translationRequest
+                            )
+                        }
+                        finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
+                    } else {
+                        // English detected, target English → keep as-is
+                        finalText = rawText
+                    }
+                } else {
+                    // No detected language available or English target with no detected lang
+                    finalText = rawText
+                }
+
+                // Step 3: Apply AI Enhancement if selected
+                if (aiEnhancementModel != "none" && finalText.isNotEmpty()) {
+                    val enhancerModel = when (aiEnhancementModel) {
+                        "llama-3.2-3b-preview" -> "llama-3.2-3b-preview"
+                        "mixtral-8x7b-32768" -> "mixtral-8x7b-32768"
+                        "gemma2-9b-it" -> "gemma2-9b-it"
+                        else -> "llama-3.1-8b-instant"
+                    }
+
+                    val enhanceRequest = ChatRequest(
+                        model = enhancerModel,
+                        messages = listOf(
+                            ChatMessage("system", "You are an AI assistant that corrects spelling and grammar in transcribed text. Improve the transcription by fixing spelling errors, correcting grammar, and improving punctuation. Preserve the user's intent, tone, and spoken style. Do NOT add any preamble, quotes, markdown formatting, explanation, or conversational filler. Return ONLY the final corrected text."),
+                            ChatMessage("user", finalText)
+                        ),
+                        temperature = 0.1f
+                    )
+
+                    val enhanceResponse = withContext(Dispatchers.IO) {
+                        apiService.chatCompletion(
+                            authHeader = "Bearer $apiKey",
+                            request = enhanceRequest
+                        )
+                    }
+                    var enhancedText = enhanceResponse.choices.firstOrNull()?.message?.content ?: finalText
+                    // Clean up potential LLM quoting/wrapping artifacts
+                    if (enhancedText.startsWith("\"") && enhancedText.endsWith("\"")) {
+                        enhancedText = enhancedText.removeSurrounding("\"")
+                    } else if (enhancedText.startsWith("`") && enhancedText.endsWith("`")) {
+                        enhancedText = enhancedText.removeSurrounding("`")
+                    }
+                    finalText = enhancedText.trim()
+                }
+
+                if (finalText.isNotEmpty()) {
+                    saveToHistory(finalText)
+                    onTextTranscribed(finalText)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -244,10 +385,64 @@ class OverlayManager(
         }
     }
 
+    private fun saveToHistory(text: String) {
+        try {
+            val prefs = SecurityUtils.getEncryptedSharedPreferences(context)
+            val existing = prefs.getString("transcription_history", "") ?: ""
+            val encodedText = java.net.URLEncoder.encode(text, "UTF-8")
+            val newEntry = "${System.currentTimeMillis()}:$encodedText"
+            val updated = if (existing.isEmpty()) newEntry else "$existing|$newEntry"
+            
+            // Keep only last 100 entries
+            val entries = updated.split("|")
+            val trimmed = if (entries.size > 100) entries.takeLast(100).joinToString("|") else updated
+            
+            prefs.edit().putString("transcription_history", trimmed).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun cancelRecording() {
         voiceRecorder.cancelRecording()
         stopAmplitudePolling()
         overlayState.value = OverlayState.IDLE
+    }
+
+    private fun adjustOverlayPositionForExpansion() {
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
+        // Expanded total layout size: 130.dp (capsule) + 96.dp (ambient rings padding) = 226.dp width
+        // Expanded total height: 56.dp (capsule) + 96.dp (ambient rings padding) = 152.dp height
+        val expandedWidthPx = (226f * density).toInt()
+        val expandedHeightPx = (152f * density).toInt()
+
+        val maxAllowedX = screenWidth - expandedWidthPx + safePaddingPx
+        val minAllowedX = -safePaddingPx
+
+        if (floatX > maxAllowedX) {
+            floatX = floatX.coerceIn(minAllowedX.toFloat(), maxAllowedX.toFloat())
+            pendingX = floatX.toInt()
+            params.x = pendingX
+        }
+
+        val maxAllowedY = screenHeight - expandedHeightPx + safePaddingPx
+        val minAllowedY = -safePaddingPx
+
+        if (floatY > maxAllowedY) {
+            floatY = floatY.coerceIn(minAllowedY.toFloat(), maxAllowedY.toFloat())
+            pendingY = floatY.toInt()
+            params.y = pendingY
+        }
+
+        composeView?.let { view ->
+            try {
+                windowManager.updateViewLayout(view, params)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun showOverlay(interactionMode: String) {
@@ -265,7 +460,12 @@ class OverlayManager(
                     state = overlayState.value,
                     interactionMode = interactionMode,
                     voiceAmplitude = voiceAmplitude.floatValue,
-                    onStateChange = { newState -> overlayState.value = newState },
+                    onStateChange = { newState ->
+                        overlayState.value = newState
+                        if (newState == OverlayState.RECORDING_TAP) {
+                            adjustOverlayPositionForExpansion()
+                        }
+                    },
                     onStartRecording = {
                         startRecording()
                     },
@@ -292,23 +492,31 @@ class OverlayManager(
                                 val nextY = floatY.toInt()
 
                                 if (nextX != params.x || nextY != params.y) {
-                                    params.x = nextX
-                                    params.y = nextY
+                                    pendingX = nextX
+                                    pendingY = nextY
 
-                                    val currentTime = System.currentTimeMillis()
-                                    if (currentTime - lastUpdateTime > 14) {
+                                    if (!isFrameCallbackScheduled) {
+                                        isFrameCallbackScheduled = true
                                         try {
-                                            windowManager.updateViewLayout(this, params)
-                                            lastUpdateTime = currentTime
+                                            android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
                                         } catch (e: Exception) {
                                             e.printStackTrace()
+                                            // Fallback in case Choreographer is unavailable or encounters issues
+                                            params.x = pendingX
+                                            params.y = pendingY
+                                            try {
+                                                windowManager.updateViewLayout(this, params)
+                                            } catch (ex: Exception) {
+                                                ex.printStackTrace()
+                                            }
+                                            isFrameCallbackScheduled = false
                                         }
                                     }
                                 }
 
                                 if (dismissComposeView != null) {
-                                    val overlayCenterX = params.x + viewWidth / 2f
-                                    val overlayCenterY = params.y + viewHeight / 2f
+                                    val overlayCenterX = pendingX + viewWidth / 2f
+                                    val overlayCenterY = pendingY + viewHeight / 2f
 
                                     val targetCenterX = screenWidth / 2f
                                     val targetCenterY = screenHeight - dismissTargetYOffsetPx
@@ -345,6 +553,15 @@ class OverlayManager(
     fun hideOverlay() {
         dismissJob?.cancel()
         hideDismissTargetView()
+
+        if (isFrameCallbackScheduled) {
+            try {
+                android.view.Choreographer.getInstance().removeFrameCallback(frameCallback)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            isFrameCallbackScheduled = false
+        }
 
         if (!isShowing) return
         if (overlayState.value == OverlayState.RECORDING_HOLD || overlayState.value == OverlayState.RECORDING_TAP) {

@@ -13,8 +13,30 @@ import retrofit2.http.POST
 import retrofit2.http.Part
 import java.util.concurrent.TimeUnit
 
-// Model for the response
-data class TranscriptionResponse(val text: String)
+// Models for the response
+data class TranscriptionResponse(
+    val text: String,
+    val language: String? = null  // Detected language from Whisper
+)
+
+data class ChatRequest(
+    val model: String,
+    val messages: List<ChatMessage>,
+    val temperature: Float = 0.1f
+)
+
+data class ChatMessage(
+    val role: String,
+    val content: String
+)
+
+data class ChatResponse(
+    val choices: List<ChatChoice>
+)
+
+data class ChatChoice(
+    val message: ChatMessage
+)
 
 interface GroqApiService {
 
@@ -24,8 +46,24 @@ interface GroqApiService {
         @Header("Authorization") authHeader: String,
         @Part file: MultipartBody.Part,
         @Part("model") model: RequestBody,
-        @Part("language") language: RequestBody? = null // Optional: specify language for faster processing
+        @Part("language") language: RequestBody? = null,
+        @Part("prompt") prompt: RequestBody? = null,
+        @Part("response_format") responseFormat: RequestBody? = null
     ): TranscriptionResponse
+
+    @Multipart
+    @POST("openai/v1/audio/translations")
+    suspend fun translateAudio(
+        @Header("Authorization") authHeader: String,
+        @Part file: MultipartBody.Part,
+        @Part("model") model: RequestBody
+    ): TranscriptionResponse
+
+    @POST("openai/v1/chat/completions")
+    suspend fun chatCompletion(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Body request: ChatRequest
+    ): ChatResponse
 
     companion object {
         private const val BASE_URL = "https://api.groq.com/"

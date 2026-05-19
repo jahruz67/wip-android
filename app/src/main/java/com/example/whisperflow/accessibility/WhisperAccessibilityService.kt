@@ -3,6 +3,8 @@ package com.example.whisperflow.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.whisperflow.overlay.OverlayManager
@@ -24,6 +26,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private lateinit var overlayManager: OverlayManager
     private var currentEditableNode: AccessibilityNodeInfo? = null
     private var isManuallyDismissed = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val checkOverlayRunnable = Runnable { checkOverlayStateActual() }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -51,6 +55,7 @@ class WhisperAccessibilityService : AccessibilityService() {
                     checkOverlayState()
                 } else {
                     currentEditableNode = null
+                    handler.removeCallbacks(checkOverlayRunnable)
                     overlayManager.hideOverlay()
                 }
             }
@@ -62,6 +67,11 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     private fun checkOverlayState() {
+        handler.removeCallbacks(checkOverlayRunnable)
+        handler.postDelayed(checkOverlayRunnable, 80)
+    }
+
+    private fun checkOverlayStateActual() {
         val hasEditableFocus = currentEditableNode != null && currentEditableNode?.refresh() == true
         val keyboardVisible = isKeyboardVisible()
 
@@ -69,8 +79,10 @@ class WhisperAccessibilityService : AccessibilityService() {
             isManuallyDismissed = false // Reset manual dismiss when keyboard is closed
         }
 
-        if (hasEditableFocus && keyboardVisible && !isManuallyDismissed) {
-            val sharedPrefs = com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(this)
+        val sharedPrefs = com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(this)
+        val serviceEnabled = sharedPrefs.getBoolean("service_enabled", true)
+
+        if (hasEditableFocus && keyboardVisible && !isManuallyDismissed && serviceEnabled) {
             val mode = sharedPrefs.getString("interaction_mode", "HOLD_TO_TALK") ?: "HOLD_TO_TALK"
             overlayManager.showOverlay(mode)
         } else {
@@ -89,6 +101,7 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        handler.removeCallbacks(checkOverlayRunnable)
         if (::overlayManager.isInitialized) {
             overlayManager.hideOverlay()
         }
@@ -96,6 +109,7 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacks(checkOverlayRunnable)
         if (::overlayManager.isInitialized) {
             overlayManager.hideOverlay()
         }
