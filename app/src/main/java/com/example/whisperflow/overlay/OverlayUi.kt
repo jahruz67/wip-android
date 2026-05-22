@@ -1,11 +1,22 @@
 package com.example.whisperflow.overlay
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import android.widget.Toast
+import androidx.core.content.edit
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -18,6 +29,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -29,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.view.MotionEvent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +69,18 @@ fun OverlayUi(
 
     var isDragging by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
+    
+    var longPressJob by remember { mutableStateOf<Job?>(null) }
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+    var isDoubleTapTriggered by remember { mutableStateOf(false) }
+    var isLongPressTriggered by remember { mutableStateOf(false) }
+    var showLanguagePopup by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state) {
+        if (state != OverlayState.IDLE) {
+            showLanguagePopup = false
+        }
+    }
     
     // Coordination tracking (using a ref-like object to avoid recompositions during drag)
     val touchState = remember { object {
@@ -106,9 +131,93 @@ fun OverlayUi(
     )
 
     Box(
-        modifier = Modifier.padding(48.dp),
+        modifier = Modifier
+            .padding(start = 48.dp, end = 48.dp, top = 88.dp, bottom = 48.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                if (showLanguagePopup) {
+                    showLanguagePopup = false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
+        AnimatedVisibility(
+            visible = showLanguagePopup,
+            enter = fadeIn() + scaleIn(initialScale = 0.8f),
+            exit = fadeOut() + scaleOut(targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            val context = LocalContext.current
+            val sharedPrefs = remember { com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(context) }
+            var targetLanguage by remember {
+                mutableStateOf(sharedPrefs.getString("target_language", "english") ?: "english")
+            }
+
+            Box(
+                modifier = Modifier
+                    .offset(y = (-64).dp)
+                    .shadow(12.dp, RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1E2129).copy(alpha = 0.9f))
+                    .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isEnglish = targetLanguage.equals("english", ignoreCase = true)
+                    
+                    // English Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isEnglish) Color(0xFF5B8DEF) else Color.Transparent)
+                            .clickable {
+                                targetLanguage = "english"
+                                sharedPrefs.edit { putString("target_language", "english") }
+                                showLanguagePopup = false
+                                Toast.makeText(context, "Translation: Auto-Translate to English", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "English",
+                            color = if (isEnglish) Color.White else Color(0xFF9CA3AF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
+
+                    // Spanish Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (!isEnglish) Color(0xFF5B8DEF) else Color.Transparent)
+                            .clickable {
+                                targetLanguage = "spanish"
+                                sharedPrefs.edit { putString("target_language", "spanish") }
+                                showLanguagePopup = false
+                                Toast.makeText(context, "Translation: Auto-Translate to Spanish", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Spanish",
+                            color = if (!isEnglish) Color.White else Color(0xFF9CA3AF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
+                }
+            }
+        }
 
         // Ring shape matches the capsule
         val ringShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape
@@ -232,14 +341,32 @@ fun OverlayUi(
                             touchState.lastRawY = motionEvent.rawY
 
                             recordJob?.cancel()
+                            longPressJob?.cancel()
+
+                            val now = System.currentTimeMillis()
                             if (interactionMode == "HOLD_TO_TALK" && state == OverlayState.IDLE) {
-                                recordJob = scope.launch {
-                                    delay(300)
-                                    onStateChange(OverlayState.RECORDING_HOLD)
-                                    onStartRecording()
-                                    isRecording = true
+                                val isDoubleTap = (now - lastTapTime) < 300
+                                if (isDoubleTap) {
+                                    showLanguagePopup = !showLanguagePopup
+                                    isDoubleTapTriggered = true
+                                } else {
+                                    isDoubleTapTriggered = false
+                                    recordJob = scope.launch {
+                                        delay(300)
+                                        onStateChange(OverlayState.RECORDING_HOLD)
+                                        onStartRecording()
+                                        isRecording = true
+                                    }
+                                }
+                            } else if (interactionMode == "TAP_TO_TALK" && state == OverlayState.IDLE) {
+                                isLongPressTriggered = false
+                                longPressJob = scope.launch {
+                                    delay(600)
+                                    showLanguagePopup = !showLanguagePopup
+                                    isLongPressTriggered = true
                                 }
                             }
+                            lastTapTime = now
                             true
                         }
                         MotionEvent.ACTION_MOVE -> {
@@ -255,8 +382,10 @@ fun OverlayUi(
 
                             if (!isDragging && (abs(totalDistX) > 10 || abs(totalDistY) > 10)) {
                                 isDragging = true
+                                showLanguagePopup = false
                                 onDragStart()
                                 recordJob?.cancel()
+                                longPressJob?.cancel()
                             }
 
                             if (isDragging) {
@@ -269,12 +398,26 @@ fun OverlayUi(
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             recordJob?.cancel()
-                            if (interactionMode == "HOLD_TO_TALK" && isRecording) {
-                                onStopRecording()
+                            longPressJob?.cancel()
+
+                            if (interactionMode == "HOLD_TO_TALK") {
+                                if (isRecording) {
+                                    onStopRecording()
+                                } else if (isDoubleTapTriggered) {
+                                    isDoubleTapTriggered = false
+                                } else if (showLanguagePopup) {
+                                    showLanguagePopup = false
+                                }
                             } else if (!isDragging && !isRecording && state == OverlayState.IDLE) {
                                 if (interactionMode == "TAP_TO_TALK") {
-                                    onStateChange(OverlayState.RECORDING_TAP)
-                                    onStartRecording()
+                                    if (isLongPressTriggered) {
+                                        isLongPressTriggered = false
+                                    } else if (showLanguagePopup) {
+                                        showLanguagePopup = false
+                                    } else {
+                                        onStateChange(OverlayState.RECORDING_TAP)
+                                        onStartRecording()
+                                    }
                                 }
                             }
                             if (isDragging) {
