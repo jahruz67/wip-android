@@ -287,11 +287,6 @@ class OverlayManager(
                 detectedLanguage = response.language
 
                 if (rawText.isEmpty()) {
-
-                val rawText = response.text
-                detectedLanguage = response.language
-
-                if (rawText.isEmpty()) {
                     file.delete()
                     overlayState.value = OverlayState.IDLE
                     return@launch
