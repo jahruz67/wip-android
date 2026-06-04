@@ -55,6 +55,13 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import kotlin.math.abs
 
+private data class TranscriptionSettings(
+    val apiKey: String,
+    val modelName: String,
+    val aiEnhancementModel: String,
+    val targetLanguage: String
+)
+
 class OverlayManager(
     private val context: Context,
     private val onTextTranscribed: (String) -> Unit,
@@ -71,6 +78,7 @@ class OverlayManager(
     private val overlayState = mutableStateOf(OverlayState.IDLE)
     private val voiceAmplitude = mutableFloatStateOf(0f)
     private var amplitudeJob: Job? = null
+    private var startRecordingJob: Job? = null
 
     // Bottom-center dismiss target state
     private var dismissComposeView: ComposeView? = null
@@ -115,6 +123,9 @@ class OverlayManager(
     private var pendingX = 50
     private var pendingY = 500
     private var isFrameCallbackScheduled = false
+    private var hasChromeInsets = false
+    private var currentChromeInsetX = 0
+    private var currentChromeInsetY = 0
 
     private val frameCallback = object : android.view.Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -150,7 +161,7 @@ class OverlayManager(
         amplitudeJob?.cancel()
         amplitudeJob = scope.launch {
             while (isActive) {
-                delay(80)
+                delay(120)
                 val maxAmp = voiceRecorder.getMaxAmplitude()
                 val normalized = (maxAmp.toFloat() / 8000f).coerceIn(0f, 1f)
                 if (abs(voiceAmplitude.floatValue - normalized) >= 0.015f) {
@@ -204,17 +215,20 @@ class OverlayManager(
         dismissTargetNearState.value = false
     }
 
-    private fun startRecording(): Boolean {
-        val prefs = SecurityUtils.getEncryptedSharedPreferences(context)
-        val audioSource = prefs.getInt("audio_source", MediaRecorder.AudioSource.MIC)
-        val recordingFile = voiceRecorder.startRecording(audioSource)
-        if (recordingFile == null) {
-            overlayState.value = OverlayState.IDLE
-            Toast.makeText(context, "Unable to start recording. Please try again.", Toast.LENGTH_SHORT).show()
-            return false
+    private fun startRecording() {
+        startRecordingJob?.cancel()
+        startRecordingJob = scope.launch {
+            val recordingFile = withContext(Dispatchers.IO) {
+                val audioSource = SecurityUtils.getInt(context, "audio_source", MediaRecorder.AudioSource.MIC)
+                voiceRecorder.startRecording(audioSource)
+            }
+            if (recordingFile == null) {
+                overlayState.value = OverlayState.IDLE
+                Toast.makeText(context, "Unable to start recording. Please try again.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            startAmplitudePolling()
         }
-        startAmplitudePolling()
-        return true
     }
 
     private fun stopRecordingAndTranscribe() {
@@ -222,6 +236,10 @@ class OverlayManager(
         stopAmplitudePolling()
         
         scope.launch {
+            val pendingStart = startRecordingJob
+            pendingStart?.join()
+            startRecordingJob = null
+
             val file = withContext(Dispatchers.IO) {
                 voiceRecorder.stopRecording()
             }
@@ -231,13 +249,16 @@ class OverlayManager(
                 return@launch
             }
 
-            val sharedPrefs = SecurityUtils.getEncryptedSharedPreferences(context)
-            val apiKey = sharedPrefs.getString("api_key", "") ?: ""
-            val modelName = sharedPrefs.getString("whisper_model", "whisper-large-v3") ?: "whisper-large-v3"
-            val aiEnhancementModel = sharedPrefs.getString("ai_enhancement_model", "none") ?: "none"
-            val targetLanguage = sharedPrefs.getString("target_language", "english") ?: "english"
+            val settings = withContext(Dispatchers.IO) {
+                TranscriptionSettings(
+                    apiKey = SecurityUtils.getString(context, "api_key", ""),
+                    modelName = SecurityUtils.getString(context, "whisper_model", "whisper-large-v3"),
+                    aiEnhancementModel = SecurityUtils.getString(context, "ai_enhancement_model", "none"),
+                    targetLanguage = SecurityUtils.getString(context, "target_language", "english")
+                )
+            }
 
-            if (apiKey.isEmpty()) {
+            if (settings.apiKey.isEmpty()) {
                 Toast.makeText(context, "Groq API Key is missing! Please configure it in Settings.", Toast.LENGTH_LONG).show()
                 file.delete()
                 overlayState.value = OverlayState.IDLE
@@ -250,15 +271,14 @@ class OverlayManager(
             try {
                 val requestFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
                 val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
-                val modelPart = modelName.toRequestBody("text/plain".toMediaTypeOrNull())
                 val responseFormatPart = "verbose_json".toRequestBody("text/plain".toMediaTypeOrNull())
 
                 // Step 1: Transcribe with Whisper (auto-detects language)
                 val response = withContext(Dispatchers.IO) {
                     apiService.transcribeAudio(
-                        authHeader = "Bearer $apiKey",
+                        authHeader = "Bearer ${settings.apiKey}",
                         file = filePart,
-                        model = modelPart,
+                        model = settings.modelName.toRequestBody("text/plain".toMediaTypeOrNull()),
                         responseFormat = responseFormatPart
                     )
                 }
@@ -276,7 +296,7 @@ class OverlayManager(
                 // User picks a target language from settings
                 // Whisper detects the spoken language
                 // If detected != target → translate, otherwise keep as-is
-                val isTargetEnglish = targetLanguage.equals("english", ignoreCase = true)
+                val isTargetEnglish = settings.targetLanguage.equals("english", ignoreCase = true)
 
                 if (!isTargetEnglish && detectedLanguage != null) {
                     // Target is non-English (e.g. Spanish). Check if detected is English.
@@ -288,7 +308,7 @@ class OverlayManager(
                         val translationRequest = ChatRequest(
                             model = "llama-3.1-8b-instant",
                             messages = listOf(
-                                ChatMessage("system", "You are a translator. Translate the following text to $targetLanguage. The original text is in English. Return ONLY the translated text, nothing else."),
+                            ChatMessage("system", "You are a translator. Translate the following text to ${settings.targetLanguage}. The original text is in English. Return ONLY the translated text, nothing else."),
                                 ChatMessage("user", rawText)
                             ),
                             temperature = 0.1f
@@ -296,7 +316,7 @@ class OverlayManager(
 
                         val translationResponse = withContext(Dispatchers.IO) {
                             apiService.chatCompletion(
-                                authHeader = "Bearer $apiKey",
+                                authHeader = "Bearer ${settings.apiKey}",
                                 request = translationRequest
                             )
                         }
@@ -323,7 +343,7 @@ class OverlayManager(
 
                         val translationResponse = withContext(Dispatchers.IO) {
                             apiService.chatCompletion(
-                                authHeader = "Bearer $apiKey",
+                                authHeader = "Bearer ${settings.apiKey}",
                                 request = translationRequest
                             )
                         }
@@ -338,8 +358,8 @@ class OverlayManager(
                 }
 
                 // Step 3: Apply AI Enhancement if selected
-                if (aiEnhancementModel != "none" && finalText.isNotEmpty()) {
-                    val enhancerModel = when (aiEnhancementModel) {
+                if (settings.aiEnhancementModel != "none" && finalText.isNotEmpty()) {
+                    val enhancerModel = when (settings.aiEnhancementModel) {
                         "llama-3.2-3b-preview" -> "llama-3.2-3b-preview"
                         "mixtral-8x7b-32768" -> "mixtral-8x7b-32768"
                         "gemma2-9b-it" -> "gemma2-9b-it"
@@ -357,7 +377,7 @@ class OverlayManager(
 
                     val enhanceResponse = withContext(Dispatchers.IO) {
                         apiService.chatCompletion(
-                            authHeader = "Bearer $apiKey",
+                            authHeader = "Bearer ${settings.apiKey}",
                             request = enhanceRequest
                         )
                     }
@@ -372,7 +392,9 @@ class OverlayManager(
                 }
 
                 if (finalText.isNotEmpty()) {
-                    saveToHistory(finalText)
+                    withContext(Dispatchers.IO) {
+                        saveToHistory(finalText)
+                    }
                     onTextTranscribed(finalText)
                 }
             } catch (e: Exception) {
@@ -387,8 +409,7 @@ class OverlayManager(
 
     private fun saveToHistory(text: String) {
         try {
-            val prefs = SecurityUtils.getEncryptedSharedPreferences(context)
-            val existing = prefs.getString("transcription_history", "") ?: ""
+            val existing = SecurityUtils.getString(context, "transcription_history", "")
             val encodedText = java.net.URLEncoder.encode(text, "UTF-8")
             val newEntry = "${System.currentTimeMillis()}:$encodedText"
             val updated = if (existing.isEmpty()) newEntry else "$existing|$newEntry"
@@ -397,14 +418,18 @@ class OverlayManager(
             val entries = updated.split("|")
             val trimmed = if (entries.size > 100) entries.takeLast(100).joinToString("|") else updated
             
-            prefs.edit().putString("transcription_history", trimmed).apply()
+            SecurityUtils.putString(context, "transcription_history", trimmed)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     private fun cancelRecording() {
-        voiceRecorder.cancelRecording()
+        startRecordingJob?.cancel()
+        startRecordingJob = null
+        scope.launch(Dispatchers.IO) {
+            voiceRecorder.cancelRecording()
+        }
         stopAmplitudePolling()
         overlayState.value = OverlayState.IDLE
     }
@@ -445,9 +470,40 @@ class OverlayManager(
         }
     }
 
+    private fun updateChromeInsets(insetX: Int, insetY: Int) {
+        if (!hasChromeInsets) {
+            currentChromeInsetX = insetX
+            currentChromeInsetY = insetY
+            hasChromeInsets = true
+            return
+        }
+
+        val deltaX = insetX - currentChromeInsetX
+        val deltaY = insetY - currentChromeInsetY
+        if (deltaX == 0 && deltaY == 0) return
+
+        currentChromeInsetX = insetX
+        currentChromeInsetY = insetY
+        floatX -= deltaX
+        floatY -= deltaY
+        pendingX = floatX.toInt()
+        pendingY = floatY.toInt()
+        params.x = pendingX
+        params.y = pendingY
+
+        composeView?.let { view ->
+            try {
+                windowManager.updateViewLayout(view, params)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun showOverlay(interactionMode: String) {
         if (isShowing) return
         overlayState.value = OverlayState.IDLE
+        hasChromeInsets = false
 
         composeView = ComposeView(context).apply {
             setViewTreeLifecycleOwner(this@OverlayManager)
@@ -471,6 +527,9 @@ class OverlayManager(
                     },
                     onStopRecording = { stopRecordingAndTranscribe() },
                     onCancelRecording = { cancelRecording() },
+                    onChromeInsetsChange = { insetX, insetY ->
+                        updateChromeInsets(insetX, insetY)
+                    },
                     onDragStart = {
                         dismissJob?.cancel()
                         dismissJob = scope.launch {
@@ -569,6 +628,7 @@ class OverlayManager(
         }
         composeView?.let {
             try {
+                it.disposeComposition()
                 windowManager.removeView(it)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -578,6 +638,13 @@ class OverlayManager(
             composeView = null
         }
         isShowing = false
+    }
+
+    fun destroy() {
+        hideOverlay()
+        scope.cancel()
+        store.clear()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
     }
 
     @Composable

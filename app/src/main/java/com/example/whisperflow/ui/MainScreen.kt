@@ -26,7 +26,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -46,8 +45,22 @@ import androidx.lifecycle.LifecycleEventObserver
 import android.media.MediaRecorder
 import com.example.whisperflow.accessibility.WhisperAccessibilityService
 import com.example.whisperflow.audio.VoiceRecorder
+import com.example.whisperflow.network.SecurityUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+
+private data class MainScreenSettings(
+    val apiKey: String,
+    val selectedModel: String,
+    val interactionMode: String,
+    val isServiceEnabled: Boolean,
+    val selectedAudioSource: Int,
+    val selectedLanguage: String,
+    val selectedAiModel: String,
+    val historyItems: List<String>
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,13 +69,12 @@ fun MainScreen(
     onOpenOverlaySettings: () -> Unit
 ) {
     val context = LocalContext.current
-    val sharedPrefs = remember { com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(context) }
 
-    var apiKey by remember { mutableStateOf(sharedPrefs.getString("api_key", "") ?: "") }
+    var apiKey by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
-    var showSavedIcon by remember { mutableStateOf(apiKey.isNotEmpty()) }
-    var selectedModel by remember { mutableStateOf(sharedPrefs.getString("whisper_model", "whisper-large-v3") ?: "whisper-large-v3") }
-    var interactionMode by remember { mutableStateOf(sharedPrefs.getString("interaction_mode", "HOLD_TO_TALK") ?: "HOLD_TO_TALK") }
+    var showSavedIcon by remember { mutableStateOf(false) }
+    var selectedModel by remember { mutableStateOf("whisper-large-v3") }
+    var interactionMode by remember { mutableStateOf("HOLD_TO_TALK") }
     var isModelDropdownExpanded by remember { mutableStateOf(false) }
     var isLangDropdownExpanded by remember { mutableStateOf(false) }
     var isSourceDropdownExpanded by remember { mutableStateOf(false) }
@@ -70,13 +82,13 @@ fun MainScreen(
 
     // Master On/Off Toggle
     var isServiceEnabled by remember {
-        mutableStateOf(sharedPrefs.getBoolean("service_enabled", true))
+        mutableStateOf(true)
     }
 
     // Audio Source Selection - dynamically lists all recording devices on the device
     val audioSourceList = remember { VoiceRecorder.getAvailableAudioSources(context) }
     var selectedAudioSource by remember {
-        mutableStateOf(sharedPrefs.getInt("audio_source", MediaRecorder.AudioSource.MIC))
+        mutableStateOf(MediaRecorder.AudioSource.MIC)
     }
 
     // Translation Target Language (English or Spanish only)
@@ -85,7 +97,7 @@ fun MainScreen(
         "spanish" to "Spanish"
     )
     var selectedLanguage by remember {
-        mutableStateOf(sharedPrefs.getString("target_language", "english") ?: "english")
+        mutableStateOf("english")
     }
 
     // AI Enhancement Model Selection
@@ -96,11 +108,34 @@ fun MainScreen(
         "gemma2-9b-it" to "Gemma 2 9B (Balanced)"
     )
     var selectedAiModel by remember {
-        mutableStateOf(sharedPrefs.getString("ai_enhancement_model", "none") ?: "none")
+        mutableStateOf("none")
     }
 
-    // Transcription History - fixed to load from SharedPreferences
-    var historyItems by remember { mutableStateOf(loadHistory(sharedPrefs)) }
+    var historyItems by remember { mutableStateOf(emptyList<String>()) }
+
+    LaunchedEffect(context) {
+        val settings = withContext(Dispatchers.IO) {
+            MainScreenSettings(
+                apiKey = SecurityUtils.getString(context, "api_key", ""),
+                selectedModel = SecurityUtils.getString(context, "whisper_model", "whisper-large-v3"),
+                interactionMode = SecurityUtils.getString(context, "interaction_mode", "HOLD_TO_TALK"),
+                isServiceEnabled = SecurityUtils.getBoolean(context, "service_enabled", true),
+                selectedAudioSource = SecurityUtils.getInt(context, "audio_source", MediaRecorder.AudioSource.MIC),
+                selectedLanguage = SecurityUtils.getString(context, "target_language", "english"),
+                selectedAiModel = SecurityUtils.getString(context, "ai_enhancement_model", "none"),
+                historyItems = loadHistory(context)
+            )
+        }
+        apiKey = settings.apiKey
+        showSavedIcon = settings.apiKey.isNotEmpty()
+        selectedModel = settings.selectedModel
+        interactionMode = settings.interactionMode
+        isServiceEnabled = settings.isServiceEnabled
+        selectedAudioSource = settings.selectedAudioSource
+        selectedLanguage = settings.selectedLanguage
+        selectedAiModel = settings.selectedAiModel
+        historyItems = settings.historyItems
+    }
 
     var isServiceAccessible by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
 
@@ -131,15 +166,15 @@ fun MainScreen(
     }
 
     fun saveAllSettings() {
-        sharedPrefs.edit().apply {
-            putString("api_key", apiKey)
-            putString("whisper_model", selectedModel)
-            putString("interaction_mode", interactionMode)
-            putInt("audio_source", selectedAudioSource)
-            putString("target_language", selectedLanguage)
-            putString("ai_enhancement_model", selectedAiModel)
-            apply()
-        }
+        SecurityUtils.saveSettings(
+            context = context,
+            apiKey = apiKey,
+            whisperModel = selectedModel,
+            interactionMode = interactionMode,
+            audioSource = selectedAudioSource,
+            targetLanguage = selectedLanguage,
+            aiEnhancementModel = selectedAiModel
+        )
         showSavedIcon = true
     }
 
@@ -279,7 +314,7 @@ fun MainScreen(
                                 checked = isServiceEnabled,
                                 onCheckedChange = { enabled ->
                                     isServiceEnabled = enabled
-                                    sharedPrefs.edit().putBoolean("service_enabled", enabled).apply()
+                                    SecurityUtils.putBoolean(context, "service_enabled", enabled)
                                 },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = Color(0xFF10B981),
@@ -469,7 +504,7 @@ fun MainScreen(
                                             onClick = {
                                                 selectedAudioSource = source
                                                 isSourceDropdownExpanded = false
-                                                sharedPrefs.edit().putInt("audio_source", source).apply()
+                                                SecurityUtils.putInt(context, "audio_source", source)
                                             }
                                         )
                                     }
@@ -574,7 +609,7 @@ fun MainScreen(
                                         onClick = {
                                             selectedModel = "whisper-large-v3"
                                             isModelDropdownExpanded = false
-                                            sharedPrefs.edit().putString("whisper_model", "whisper-large-v3").apply()
+                                            SecurityUtils.putString(context, "whisper_model", "whisper-large-v3")
                                         }
                                     )
                                     DropdownMenuItem(
@@ -587,7 +622,7 @@ fun MainScreen(
                                         onClick = {
                                             selectedModel = "whisper-large-v3-turbo"
                                             isModelDropdownExpanded = false
-                                            sharedPrefs.edit().putString("whisper_model", "whisper-large-v3-turbo").apply()
+                                            SecurityUtils.putString(context, "whisper_model", "whisper-large-v3-turbo")
                                         }
                                     )
                                 }
@@ -693,7 +728,7 @@ fun MainScreen(
                                             onClick = {
                                                 selectedLanguage = lang
                                                 isLangDropdownExpanded = false
-                                                sharedPrefs.edit().putString("target_language", lang).apply()
+                                                SecurityUtils.putString(context, "target_language", lang)
                                             }
                                         )
                                     }
@@ -806,7 +841,7 @@ fun MainScreen(
                                             onClick = {
                                                 selectedAiModel = model
                                                 isAiDropdownExpanded = false
-                                                sharedPrefs.edit().putString("ai_enhancement_model", model).apply()
+                                                SecurityUtils.putString(context, "ai_enhancement_model", model)
                                             }
                                         )
                                     }
@@ -882,7 +917,7 @@ fun MainScreen(
                                     selectedColor = Color(0xFF5B8DEF),
                                     onClick = {
                                         interactionMode = "HOLD_TO_TALK"
-                                        sharedPrefs.edit().putString("interaction_mode", "HOLD_TO_TALK").apply()
+                                        SecurityUtils.putString(context, "interaction_mode", "HOLD_TO_TALK")
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -895,7 +930,7 @@ fun MainScreen(
                                     selectedColor = Color(0xFF5B8DEF),
                                     onClick = {
                                         interactionMode = "TAP_TO_TALK"
-                                        sharedPrefs.edit().putString("interaction_mode", "TAP_TO_TALK").apply()
+                                        SecurityUtils.putString(context, "interaction_mode", "TAP_TO_TALK")
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -963,7 +998,7 @@ fun MainScreen(
                         if (historyItems.isNotEmpty()) {
                             TextButton(
                                 onClick = {
-                                    sharedPrefs.edit().remove("transcription_history").apply()
+                                    SecurityUtils.remove(context, "transcription_history")
                                     historyItems = emptyList()
                                 },
                                 colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE5484D))
@@ -1013,7 +1048,7 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    items(historyItems) { historyEntry ->
+                    items(historyItems, key = { it }) { historyEntry ->
                         // Parse the history entry (format: "timestamp:text")
                         val parts = historyEntry.split(":", limit = 2)
                         val timestamp = parts.getOrNull(0)?.toLongOrNull() ?: 0L
@@ -1070,7 +1105,7 @@ fun MainScreen(
                                     IconButton(
                                         onClick = {
                                             historyItems = historyItems - historyEntry
-                                            saveHistoryList(sharedPrefs, historyItems)
+                                            saveHistoryList(context, historyItems)
                                         },
                                         modifier = Modifier.size(32.dp)
                                     ) {
@@ -1091,17 +1126,17 @@ fun MainScreen(
     }
 }
 
-// Helper to load history from SharedPreferences
-private fun loadHistory(prefs: android.content.SharedPreferences): List<String> {
-    val raw = prefs.getString("transcription_history", "") ?: ""
+// Helper to load history from cached secure preferences.
+private fun loadHistory(context: Context): List<String> {
+    val raw = SecurityUtils.getString(context, "transcription_history", "")
     if (raw.isEmpty()) return emptyList()
     return raw.split("|").filter { it.isNotBlank() }.reversed()
 }
 
-// Helper to save history list back to SharedPreferences
-private fun saveHistoryList(prefs: android.content.SharedPreferences, items: List<String>) {
+// Helper to save history list back to cached secure preferences.
+private fun saveHistoryList(context: Context, items: List<String>) {
     val raw = items.reversed().joinToString("|")
-    prefs.edit().putString("transcription_history", raw).apply()
+    SecurityUtils.putString(context, "transcription_history", raw)
 }
 
 private fun formatHistoryTime(timestamp: Long): String {
@@ -1119,12 +1154,6 @@ fun PremiumGlassCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = 4.dp,
-                shape = RoundedCornerShape(16.dp),
-                spotColor = Color.Black,
-                ambientColor = Color.Black
-            )
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF1A1C23))
             .border(

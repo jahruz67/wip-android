@@ -7,7 +7,15 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.whisperflow.network.SecurityUtils
 import com.example.whisperflow.overlay.OverlayManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Accessibility service used solely to:
@@ -28,6 +36,8 @@ class WhisperAccessibilityService : AccessibilityService() {
     private var isManuallyDismissed = false
     private val handler = Handler(Looper.getMainLooper())
     private val checkOverlayRunnable = Runnable { checkOverlayStateActual() }
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var checkOverlayJob: Job? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -49,12 +59,15 @@ class WhisperAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 val node = event.source
                 if (node != null && node.isEditable) {
+                    recycleCurrentEditableNode()
                     @Suppress("DEPRECATION")
                     currentEditableNode = AccessibilityNodeInfo.obtain(node)
+                    node.recycle()
                     isManuallyDismissed = false // Reset manual dismiss on new focus
                     checkOverlayState()
                 } else {
-                    currentEditableNode = null
+                    node?.recycle()
+                    recycleCurrentEditableNode()
                     handler.removeCallbacks(checkOverlayRunnable)
                     overlayManager.hideOverlay()
                 }
@@ -72,6 +85,18 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     private fun checkOverlayStateActual() {
+        checkOverlayJob?.cancel()
+        checkOverlayJob = serviceScope.launch {
+            val sharedPrefsValues = withContext(Dispatchers.IO) {
+                val serviceEnabled = SecurityUtils.getBoolean(this@WhisperAccessibilityService, "service_enabled", true)
+                val mode = SecurityUtils.getString(this@WhisperAccessibilityService, "interaction_mode", "HOLD_TO_TALK")
+                serviceEnabled to mode
+            }
+            applyOverlayState(sharedPrefsValues.first, sharedPrefsValues.second)
+        }
+    }
+
+    private fun applyOverlayState(serviceEnabled: Boolean, mode: String) {
         val hasEditableFocus = currentEditableNode != null && currentEditableNode?.refresh() == true
         val keyboardVisible = isKeyboardVisible()
 
@@ -79,11 +104,7 @@ class WhisperAccessibilityService : AccessibilityService() {
             isManuallyDismissed = false // Reset manual dismiss when keyboard is closed
         }
 
-        val sharedPrefs = com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(this)
-        val serviceEnabled = sharedPrefs.getBoolean("service_enabled", true)
-
         if (hasEditableFocus && keyboardVisible && !isManuallyDismissed && serviceEnabled) {
-            val mode = sharedPrefs.getString("interaction_mode", "HOLD_TO_TALK") ?: "HOLD_TO_TALK"
             overlayManager.showOverlay(mode)
         } else {
             overlayManager.hideOverlay()
@@ -102,6 +123,7 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         handler.removeCallbacks(checkOverlayRunnable)
+        checkOverlayJob?.cancel()
         if (::overlayManager.isInitialized) {
             overlayManager.hideOverlay()
         }
@@ -110,16 +132,18 @@ class WhisperAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(checkOverlayRunnable)
+        checkOverlayJob?.cancel()
         if (::overlayManager.isInitialized) {
-            overlayManager.hideOverlay()
+            overlayManager.destroy()
         }
-        currentEditableNode = null
+        recycleCurrentEditableNode()
+        serviceScope.cancel()
     }
 
     private fun injectText(text: String) {
         val node = currentEditableNode ?: return
         if (!node.refresh()) {
-            currentEditableNode = null
+            recycleCurrentEditableNode()
             return
         }
         
@@ -135,5 +159,10 @@ class WhisperAccessibilityService : AccessibilityService() {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
         }
         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+    }
+
+    private fun recycleCurrentEditableNode() {
+        currentEditableNode?.recycle()
+        currentEditableNode = null
     }
 }

@@ -6,7 +6,12 @@ import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 class VoiceRecorder(private val context: Context) {
 
@@ -14,6 +19,9 @@ class VoiceRecorder(private val context: Context) {
     private var outputFile: File? = null
 
     companion object {
+        private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val cleanupStarted = AtomicBoolean(false)
+
         // Maps MediaRecorder audio source constants to their display names
         private val audioSourceInfoMap = mapOf(
             MediaRecorder.AudioSource.MIC to "Built-in Microphone",
@@ -105,17 +113,16 @@ class VoiceRecorder(private val context: Context) {
     }
 
     init {
-        try {
-            Thread {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        if (cleanupStarted.compareAndSet(false, true)) cleanupScope.launch {
+            try {
                 context.cacheDir.listFiles()?.forEach { file ->
                     if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
                         file.delete()
                     }
                 }
-            }.start()
-        } catch (e: Exception) {
-            Log.e("VoiceRecorder", "Failed to start legacy audio cleanup thread: ${e.message}")
+            } catch (e: Exception) {
+                Log.e("VoiceRecorder", "Failed to clean legacy audio files: ${e.message}")
+            }
         }
     }
 

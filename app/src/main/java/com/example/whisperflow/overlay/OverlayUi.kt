@@ -11,10 +11,10 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import android.widget.Toast
-import androidx.core.content.edit
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
@@ -43,9 +43,12 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.view.MotionEvent
+import com.example.whisperflow.network.SecurityUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 enum class OverlayState { IDLE, RECORDING_HOLD, RECORDING_TAP, TRANSCRIBING }
@@ -60,6 +63,7 @@ fun OverlayUi(
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onCancelRecording: () -> Unit,
+    onChromeInsetsChange: (Int, Int) -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float, Float) -> Unit,
     onDragEnd: () -> Unit
@@ -92,6 +96,21 @@ fun OverlayUi(
 
     // Smooth capsule size transition
     val isExpanded = state == OverlayState.RECORDING_TAP
+    val needsVisualRoom = showLanguagePopup || state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP
+    val outerHorizontalPadding = if (needsVisualRoom) 48.dp else 8.dp
+    val outerTopPadding = if (showLanguagePopup) 88.dp else if (needsVisualRoom) 48.dp else 8.dp
+    val outerBottomPadding = if (needsVisualRoom) 48.dp else 8.dp
+    val density = LocalDensity.current
+
+    LaunchedEffect(outerHorizontalPadding, outerTopPadding, density) {
+        with(density) {
+            onChromeInsetsChange(
+                outerHorizontalPadding.roundToPx(),
+                outerTopPadding.roundToPx()
+            )
+        }
+    }
+
     val targetWidth = if (isExpanded) 130.dp else 56.dp
     val targetHeight = 56.dp
     val animatedWidth by animateDpAsState(
@@ -118,21 +137,14 @@ fun OverlayUi(
         label = "amplitude"
     )
 
-    // Continuous breath-glow transition for idle state
-    val infiniteTransition = rememberInfiniteTransition(label = "glow")
-    val idlePulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.6f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "idlePulse"
-    )
-
     Box(
         modifier = Modifier
-            .padding(start = 48.dp, end = 48.dp, top = 88.dp, bottom = 48.dp)
+            .padding(
+                start = outerHorizontalPadding,
+                end = outerHorizontalPadding,
+                top = outerTopPadding,
+                bottom = outerBottomPadding
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -150,15 +162,19 @@ fun OverlayUi(
             modifier = Modifier.align(Alignment.Center)
         ) {
             val context = LocalContext.current
-            val sharedPrefs = remember { com.example.whisperflow.network.SecurityUtils.getEncryptedSharedPreferences(context) }
-            var targetLanguage by remember {
-                mutableStateOf(sharedPrefs.getString("target_language", "english") ?: "english")
+            var targetLanguage by remember { mutableStateOf("english") }
+
+            LaunchedEffect(showLanguagePopup) {
+                if (showLanguagePopup) {
+                    targetLanguage = withContext(Dispatchers.IO) {
+                        SecurityUtils.getString(context, "target_language", "english")
+                    }
+                }
             }
 
             Box(
                 modifier = Modifier
                     .offset(y = (-64).dp)
-                    .shadow(12.dp, RoundedCornerShape(16.dp))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.9f))
                     .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
@@ -177,7 +193,9 @@ fun OverlayUi(
                             .background(if (isEnglish) Color(0xFF5B8DEF) else Color.Transparent)
                             .clickable {
                                 targetLanguage = "english"
-                                sharedPrefs.edit { putString("target_language", "english") }
+                                scope.launch(Dispatchers.IO) {
+                                    SecurityUtils.putString(context, "target_language", "english")
+                                }
                                 showLanguagePopup = false
                                 Toast.makeText(context, "Translation: Auto-Translate to English", Toast.LENGTH_SHORT).show()
                             }
@@ -200,7 +218,9 @@ fun OverlayUi(
                             .background(if (!isEnglish) Color(0xFF5B8DEF) else Color.Transparent)
                             .clickable {
                                 targetLanguage = "spanish"
-                                sharedPrefs.edit { putString("target_language", "spanish") }
+                                scope.launch(Dispatchers.IO) {
+                                    SecurityUtils.putString(context, "target_language", "spanish")
+                                }
                                 showLanguagePopup = false
                                 Toast.makeText(context, "Translation: Auto-Translate to Spanish", Toast.LENGTH_SHORT).show()
                             }
@@ -272,14 +292,14 @@ fun OverlayUi(
                     )
             )
         } else if (state == OverlayState.IDLE) {
-            // Idle breathing ring
+            // Static idle ring avoids continuous redraw while the keyboard is open.
             Box(
                 modifier = Modifier
                     .size(56.dp)
                     .graphicsLayer {
                         scaleX = 1.1f
                         scaleY = 1.1f
-                        alpha = idlePulseAlpha
+                        alpha = 0.35f
                     }
                     .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.3f), CircleShape)
             )
@@ -317,7 +337,7 @@ fun OverlayUi(
                     scaleY = containerScale
                 }
                 .shadow(
-                    elevation = if (state != OverlayState.IDLE) 16.dp else 8.dp,
+                    elevation = if (state != OverlayState.IDLE) 8.dp else 2.dp,
                     shape = capsuleShape,
                     spotColor = if (state == OverlayState.RECORDING_HOLD) Color(0xFFE5484D) else Color(0xFF5B8DEF),
                     ambientColor = Color.Black
