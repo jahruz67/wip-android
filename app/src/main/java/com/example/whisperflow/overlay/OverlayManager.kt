@@ -287,6 +287,11 @@ class OverlayManager(
                 detectedLanguage = response.language
 
                 if (rawText.isEmpty()) {
+
+                val rawText = response.text
+                detectedLanguage = response.language
+
+                if (rawText.isEmpty()) {
                     file.delete()
                     overlayState.value = OverlayState.IDLE
                     return@launch
@@ -296,71 +301,76 @@ class OverlayManager(
                 // User picks a target language from settings
                 // Whisper detects the spoken language
                 // If detected != target → translate, otherwise keep as-is
-                val isTargetEnglish = settings.targetLanguage.equals("english", ignoreCase = true)
-
-                if (!isTargetEnglish && detectedLanguage != null) {
-                    // Target is non-English (e.g. Spanish). Check if detected is English.
-                    val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
-                                            detectedLanguage.startsWith("english", ignoreCase = true)
-
-                    if (isDetectedEnglish) {
-                        // Detected English, user wants Spanish → translate to Spanish
-                        val translationRequest = ChatRequest(
-                            model = "llama-3.1-8b-instant",
-                            messages = listOf(
-                            ChatMessage("system", "You are a translator. Translate the following text to ${settings.targetLanguage}. The original text is in English. Return ONLY the translated text, nothing else."),
-                                ChatMessage("user", rawText)
-                            ),
-                            temperature = 0.1f
-                        )
-
-                        val translationResponse = withContext(Dispatchers.IO) {
-                            apiService.chatCompletion(
-                                authHeader = "Bearer ${settings.apiKey}",
-                                request = translationRequest
-                            )
-                        }
-                        finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
-                    } else {
-                        // Detected matches target (e.g. Spanish detected, target Spanish) → keep as-is
-                        finalText = rawText
-                    }
-                } else if (isTargetEnglish && detectedLanguage != null) {
-                    // Target is English. Check if detected is non-English.
-                    val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
-                                            detectedLanguage.startsWith("english", ignoreCase = true)
-
-                    if (!isDetectedEnglish) {
-                        // Detected non-English, user wants English → translate to English
-                        val translationRequest = ChatRequest(
-                            model = "llama-3.1-8b-instant",
-                            messages = listOf(
-                                ChatMessage("system", "You are a translator. Translate the following text to English. The original text is in $detectedLanguage. Return ONLY the translated text, nothing else."),
-                                ChatMessage("user", rawText)
-                            ),
-                            temperature = 0.1f
-                        )
-
-                        val translationResponse = withContext(Dispatchers.IO) {
-                            apiService.chatCompletion(
-                                authHeader = "Bearer ${settings.apiKey}",
-                                request = translationRequest
-                            )
-                        }
-                        finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
-                    } else {
-                        // English detected, target English → keep as-is
-                        finalText = rawText
-                    }
-                } else {
-                    // No detected language available or English target with no detected lang
+                val targetLang = settings.targetLanguage.lowercase()
+                
+                if (targetLang == "none") {
                     finalText = rawText
+                } else {
+                    val isTargetEnglish = targetLang == "english"
+
+                    if (!isTargetEnglish && detectedLanguage != null) {
+                        // Target is non-English (e.g. Spanish). Check if detected is English.
+                        val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
+                                                detectedLanguage.startsWith("english", ignoreCase = true)
+
+                        if (isDetectedEnglish) {
+                            // Detected English, user wants Spanish → translate to Spanish
+                            val translationRequest = ChatRequest(
+                                model = "llama-3.1-8b-instant",
+                                messages = listOf(
+                                ChatMessage("system", "You are a translator. Translate the following text to ${settings.targetLanguage}. The original text is in English. Return ONLY the translated text, nothing else."),
+                                    ChatMessage("user", rawText)
+                                ),
+                                temperature = 0.1f
+                            )
+
+                            val translationResponse = withContext(Dispatchers.IO) {
+                                apiService.chatCompletion(
+                                    authHeader = "Bearer ${settings.apiKey}",
+                                    request = translationRequest
+                                )
+                            }
+                            finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
+                        } else {
+                            // Detected matches target (e.g. Spanish detected, target Spanish) → keep as-is
+                            finalText = rawText
+                        }
+                    } else if (isTargetEnglish && detectedLanguage != null) {
+                        // Target is English. Check if detected is non-English.
+                        val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
+                                                detectedLanguage.startsWith("english", ignoreCase = true)
+
+                        if (!isDetectedEnglish) {
+                            // Detected non-English, user wants English → translate to English
+                            val translationRequest = ChatRequest(
+                                model = "llama-3.1-8b-instant",
+                                messages = listOf(
+                                    ChatMessage("system", "You are a translator. Translate the following text to English. The original text is in $detectedLanguage. Return ONLY the translated text, nothing else."),
+                                    ChatMessage("user", rawText)
+                                ),
+                                temperature = 0.1f
+                            )
+
+                            val translationResponse = withContext(Dispatchers.IO) {
+                                apiService.chatCompletion(
+                                    authHeader = "Bearer ${settings.apiKey}",
+                                    request = translationRequest
+                                )
+                            }
+                            finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
+                        } else {
+                            // English detected, target English → keep as-is
+                            finalText = rawText
+                        }
+                    } else {
+                        // No detected language available or English target with no detected lang
+                        finalText = rawText
+                    }
                 }
 
                 // Step 3: Apply AI Enhancement if selected
                 if (settings.aiEnhancementModel != "none" && finalText.isNotEmpty()) {
                     val enhancerModel = when (settings.aiEnhancementModel) {
-                        "llama-3.2-3b-preview" -> "llama-3.2-3b-preview"
                         "mixtral-8x7b-32768" -> "mixtral-8x7b-32768"
                         "gemma2-9b-it" -> "gemma2-9b-it"
                         else -> "llama-3.1-8b-instant"

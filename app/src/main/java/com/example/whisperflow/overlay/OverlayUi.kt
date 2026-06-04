@@ -98,7 +98,7 @@ fun OverlayUi(
     val isExpanded = state == OverlayState.RECORDING_TAP
     val needsVisualRoom = showLanguagePopup || state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP
     val outerHorizontalPadding = if (needsVisualRoom) 48.dp else 8.dp
-    val outerTopPadding = if (showLanguagePopup) 88.dp else if (needsVisualRoom) 48.dp else 8.dp
+    val outerTopPadding = if (showLanguagePopup) 140.dp else if (needsVisualRoom) 48.dp else 8.dp
     val outerBottomPadding = if (needsVisualRoom) 48.dp else 8.dp
     val density = LocalDensity.current
 
@@ -155,12 +155,13 @@ fun OverlayUi(
             },
         contentAlignment = Alignment.Center
     ) {
-        AnimatedVisibility(
-            visible = showLanguagePopup,
-            enter = fadeIn() + scaleIn(initialScale = 0.8f),
-            exit = fadeOut() + scaleOut(targetScale = 0.8f),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
+        Box(modifier = Modifier.size(0.dp), contentAlignment = Alignment.Center) {
+            AnimatedVisibility(
+                visible = showLanguagePopup,
+                enter = fadeIn() + scaleIn(initialScale = 0.8f),
+                exit = fadeOut() + scaleOut(targetScale = 0.8f),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
             val context = LocalContext.current
             var targetLanguage by remember { mutableStateOf("english") }
 
@@ -174,70 +175,49 @@ fun OverlayUi(
 
             Box(
                 modifier = Modifier
-                    .offset(y = (-64).dp)
+                    .offset(y = (-100).dp)
+                    .width(140.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1E2129).copy(alpha = 0.9f))
+                    .background(Color(0xFF1E2129).copy(alpha = 0.95f))
                     .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    val isEnglish = targetLanguage.equals("english", ignoreCase = true)
+                    val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
                     
-                    // English Button
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isEnglish) Color(0xFF5B8DEF) else Color.Transparent)
-                            .clickable {
-                                targetLanguage = "english"
-                                scope.launch(Dispatchers.IO) {
-                                    SecurityUtils.putString(context, "target_language", "english")
+                    options.forEach { (key, display) ->
+                        val isSelected = targetLanguage.equals(key, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFF5B8DEF) else Color.Transparent)
+                                .clickable {
+                                    targetLanguage = key
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.putString(context, "target_language", key)
+                                    }
+                                    showLanguagePopup = false
+                                    val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
+                                    Toast.makeText(context, "Translation: $msg", Toast.LENGTH_SHORT).show()
                                 }
-                                showLanguagePopup = false
-                                Toast.makeText(context, "Translation: Auto-Translate to English", Toast.LENGTH_SHORT).show()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "English",
-                            color = if (isEnglish) Color.White else Color(0xFF9CA3AF),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                    }
-
-                    // Spanish Button
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (!isEnglish) Color(0xFF5B8DEF) else Color.Transparent)
-                            .clickable {
-                                targetLanguage = "spanish"
-                                scope.launch(Dispatchers.IO) {
-                                    SecurityUtils.putString(context, "target_language", "spanish")
-                                }
-                                showLanguagePopup = false
-                                Toast.makeText(context, "Translation: Auto-Translate to Spanish", Toast.LENGTH_SHORT).show()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Spanish",
-                            color = if (!isEnglish) Color.White else Color(0xFF9CA3AF),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif
-                        )
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = display,
+                                color = if (isSelected) Color.White else Color(0xFF9CA3AF),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
                     }
                 }
             }
         }
+    }
 
         // Ring shape matches the capsule
         val ringShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape

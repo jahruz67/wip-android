@@ -91,13 +91,14 @@ fun MainScreen(
         mutableStateOf(MediaRecorder.AudioSource.MIC)
     }
 
-    // Translation Target Language (English or Spanish only)
+    // Translation Target Language (English, Spanish, or None)
     val languageOptions = listOf(
+        "none" to "None",
         "english" to "English",
         "spanish" to "Spanish"
     )
     var selectedLanguage by remember {
-        mutableStateOf("english")
+        mutableStateOf("none")
     }
 
     // AI Enhancement Model Selection
@@ -719,7 +720,11 @@ fun MainScreen(
                                                 Column {
                                                     Text(display, color = Color(0xFFE8EAED), fontWeight = FontWeight.SemiBold)
                                                     Text(
-                                                        text = if (lang == "english") "Detects Spanish spoken → translates to English. Detects English → keeps as-is." else "Detects English spoken → translates to Spanish. Detects Spanish → keeps as-is.",
+                                                        text = when (lang) {
+                                                            "none" -> "Whisper detects spoken language → keeps as-is."
+                                                            "english" -> "Detects Spanish spoken → translates to English. Detects English → keeps as-is."
+                                                            else -> "Detects English spoken → translates to Spanish. Detects Spanish → keeps as-is."
+                                                        },
                                                         color = Color(0xFF6B7076),
                                                         fontSize = 11.sp
                                                     )
@@ -747,17 +752,21 @@ fun MainScreen(
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
-                                        text = if (selectedLanguage == "english") "Auto-Translate to English" else "Auto-Translate to ${selectedLanguage.replaceFirstChar { it.uppercase() }}",
+                                        text = when (selectedLanguage) {
+                                            "none" -> "Keep As-Is"
+                                            "english" -> "Auto-Translate to English"
+                                            else -> "Auto-Translate to ${selectedLanguage.replaceFirstChar { it.uppercase() }}"
+                                        },
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF8B8F9A),
                                         letterSpacing = 0.5.sp
                                     )
                                     Text(
-                                        text = if (selectedLanguage == "english") {
-                                            "Whisper detects spoken language. If detected is English → keeps as-is. If detected is Spanish → translates to English."
-                                        } else {
-                                            "Whisper detects spoken language. If detected is Spanish → keeps as-is. If detected is English → translates to Spanish."
+                                        text = when (selectedLanguage) {
+                                            "none" -> "Whisper detects spoken language and keeps it as-is without any translation."
+                                            "english" -> "Whisper detects spoken language. If detected is English → keeps as-is. If detected is Spanish → translates to English."
+                                            else -> "Whisper detects spoken language. If detected is Spanish → keeps as-is. If detected is English → translates to Spanish."
                                         },
                                         fontSize = 11.sp,
                                         color = Color(0xFF6B7076),
