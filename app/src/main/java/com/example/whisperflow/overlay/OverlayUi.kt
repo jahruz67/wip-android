@@ -155,13 +155,14 @@ fun OverlayUi(
             },
         contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.size(0.dp), contentAlignment = Alignment.Center) {
-            AnimatedVisibility(
-                visible = showLanguagePopup,
-                enter = fadeIn() + scaleIn(initialScale = 0.8f),
-                exit = fadeOut() + scaleOut(targetScale = 0.8f),
-                modifier = Modifier.align(Alignment.Center)
-            ) {
+        AnimatedVisibility(
+            visible = showLanguagePopup,
+            enter = fadeIn() + scaleIn(initialScale = 0.8f),
+            exit = fadeOut() + scaleOut(targetScale = 0.8f),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = (-100).dp)
+        ) {
             val context = LocalContext.current
             var targetLanguage by remember { mutableStateOf("english") }
 
@@ -175,7 +176,6 @@ fun OverlayUi(
 
             Box(
                 modifier = Modifier
-                    .offset(y = (-100).dp)
                     .width(140.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.95f))
@@ -217,7 +217,6 @@ fun OverlayUi(
                 }
             }
         }
-    }
 
         // Ring shape matches the capsule
         val ringShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape
