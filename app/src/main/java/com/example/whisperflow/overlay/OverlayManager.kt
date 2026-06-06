@@ -48,6 +48,7 @@ import com.example.whisperflow.network.GroqApiService
 import com.example.whisperflow.network.SecurityUtils
 import com.example.whisperflow.network.ChatRequest
 import com.example.whisperflow.network.ChatMessage
+import com.example.whisperflow.network.ToastHelper
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -162,7 +163,7 @@ class OverlayManager(
         amplitudeJob = scope.launch {
             while (isActive) {
                 delay(120)
-                val maxAmp = voiceRecorder.getMaxAmplitude()
+                val maxAmp = withContext(Dispatchers.IO) { voiceRecorder.getMaxAmplitude() }
                 val normalized = (maxAmp.toFloat() / 8000f).coerceIn(0f, 1f)
                 if (abs(voiceAmplitude.floatValue - normalized) >= 0.015f) {
                     voiceAmplitude.floatValue = normalized
@@ -224,7 +225,7 @@ class OverlayManager(
             }
             if (recordingFile == null) {
                 overlayState.value = OverlayState.IDLE
-                Toast.makeText(context, "Unable to start recording. Please try again.", Toast.LENGTH_SHORT).show()
+                ToastHelper.showToast(context, "Unable to start recording. Please try again.", Toast.LENGTH_SHORT)
                 return@launch
             }
             startAmplitudePolling()
@@ -259,8 +260,8 @@ class OverlayManager(
             }
 
             if (settings.apiKey.isEmpty()) {
-                Toast.makeText(context, "Groq API Key is missing! Please configure it in Settings.", Toast.LENGTH_LONG).show()
-                file.delete()
+                ToastHelper.showToast(context, "Groq API Key is missing! Please configure it in Settings.", Toast.LENGTH_LONG)
+                withContext(Dispatchers.IO) { file.delete() }
                 overlayState.value = OverlayState.IDLE
                 return@launch
             }
@@ -287,7 +288,7 @@ class OverlayManager(
                 detectedLanguage = response.language
 
                 if (rawText.isEmpty()) {
-                    file.delete()
+                    withContext(Dispatchers.IO) { file.delete() }
                     overlayState.value = OverlayState.IDLE
                     return@launch
                 }
@@ -405,9 +406,9 @@ class OverlayManager(
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                Toast.makeText(context, "Transcription failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                ToastHelper.showToast(context, "Transcription failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
             } finally {
-                file.delete()
+                withContext(Dispatchers.IO) { file.delete() }
                 overlayState.value = OverlayState.IDLE
             }
         }
@@ -511,6 +512,8 @@ class OverlayManager(
         overlayState.value = OverlayState.IDLE
         hasChromeInsets = false
 
+        val initialTargetLanguage = SecurityUtils.getString(context, "target_language", "none")
+
         composeView = ComposeView(context).apply {
             setViewTreeLifecycleOwner(this@OverlayManager)
             setViewTreeSavedStateRegistryOwner(this@OverlayManager)
@@ -521,6 +524,7 @@ class OverlayManager(
                 OverlayUi(
                     state = overlayState.value,
                     interactionMode = interactionMode,
+                    initialTargetLanguage = initialTargetLanguage,
                     voiceAmplitude = voiceAmplitude.floatValue,
                     onStateChange = { newState ->
                         overlayState.value = newState
@@ -612,6 +616,11 @@ class OverlayManager(
             isShowing = true
         } catch (e: Exception) {
             e.printStackTrace()
+            try {
+                composeView?.disposeComposition()
+            } catch (ex: Exception) {}
+            composeView = null
+            isShowing = false
         }
     }
 

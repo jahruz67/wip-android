@@ -19,10 +19,10 @@ object SecurityUtils {
 
         synchronized(this) {
             cachedPrefs?.let { return it }
-            return createEncryptedSharedPreferences(context).also {
-                cachedPrefs = it
-                warmValueCacheLocked(it)
-            }
+            val prefs = createEncryptedSharedPreferences(context)
+            warmValueCacheLocked(prefs)
+            cachedPrefs = prefs
+            return prefs
         }
     }
 
@@ -101,8 +101,8 @@ object SecurityUtils {
         if (isValueCacheReady) return
         synchronized(this) {
             if (isValueCacheReady) return
+            getEncryptedSharedPreferences(context)
         }
-        getEncryptedSharedPreferences(context)
     }
 
     private fun updateCache(key: String, value: Any?) {

@@ -9,6 +9,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.Crossfade
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.geometry.CornerRadius
+import com.example.whisperflow.network.ToastHelper
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -58,6 +63,7 @@ enum class OverlayState { IDLE, RECORDING_HOLD, RECORDING_TAP, TRANSCRIBING }
 fun OverlayUi(
     state: OverlayState,
     interactionMode: String,
+    initialTargetLanguage: String,
     voiceAmplitude: Float,
     onStateChange: (OverlayState) -> Unit,
     onStartRecording: () -> Unit,
@@ -102,7 +108,7 @@ fun OverlayUi(
     val outerBottomPadding = if (needsVisualRoom) 48.dp else 8.dp
     val density = LocalDensity.current
 
-    LaunchedEffect(outerHorizontalPadding, outerTopPadding, density) {
+    LaunchedEffect(needsVisualRoom, showLanguagePopup, density) {
         with(density) {
             onChromeInsetsChange(
                 outerHorizontalPadding.roundToPx(),
@@ -162,15 +168,7 @@ fun OverlayUi(
             modifier = Modifier.align(Alignment.Center)
         ) {
             val context = LocalContext.current
-            var targetLanguage by remember { mutableStateOf("english") }
-
-            LaunchedEffect(showLanguagePopup) {
-                if (showLanguagePopup) {
-                    targetLanguage = withContext(Dispatchers.IO) {
-                        SecurityUtils.getString(context, "target_language", "none")
-                    }
-                }
-            }
+            val targetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
             Box(
                 modifier = Modifier
@@ -198,19 +196,19 @@ fun OverlayUi(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (isSelected) Color(0xFF5B8DEF) else Color.Transparent)
                                 .clickable {
-                                    targetLanguage = key
+                                    targetLanguage.value = key
                                     scope.launch(Dispatchers.IO) {
                                         SecurityUtils.putString(context, "target_language", key)
                                     }
                                     showLanguagePopup = false
                                     val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
-                                    Toast.makeText(context, "Translation: $msg", Toast.LENGTH_SHORT).show()
+                                    ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                         ) {
                             Text(
                                 text = display,
-                                color = if (isSelected) Color.White else Color(0xFF9CA3AF),
+                                color = if (targetLanguage.value.equals(key, ignoreCase = true)) Color.White else Color(0xFF9CA3AF),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif
@@ -224,66 +222,87 @@ fun OverlayUi(
         // Ring shape matches the capsule
         val ringShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape
 
-        // 1. Triple-Layered Reactive Aura (shape-matched rings)
+        // 1. Reactive Aura (drawn in a single layout pass to prevent overdraw and recompositions)
         if (state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP) {
-            // Layer A: Outer ambient ripple
             Box(
                 modifier = Modifier
                     .width(animatedWidth)
                     .height(animatedHeight)
-                    .graphicsLayer {
-                        scaleX = 1.0f + animatedAmplitude * 0.4f
-                        scaleY = 1.0f + animatedAmplitude * 0.4f
-                        alpha = (1.0f - animatedAmplitude) * 0.2f
-                    }
-                    .background(Color(0xFF5B8DEF).copy(alpha = 0.25f), ringShape)
-            )
+                    .drawBehind {
+                        val cornerRadius = if (isExpanded) 28.dp.toPx() else size.height / 2f
+                        val colorBlue = Color(0xFF5B8DEF)
+                        
+                        // Ring A: scale = 1.0 + amplitude * 0.4, alpha = (1.0 - amplitude) * 0.05
+                        val scaleA = 1.0f + animatedAmplitude * 0.4f
+                        val alphaA = 0.05f * (1.0f - animatedAmplitude)
 
-            // Layer B: Mid halo
-            Box(
-                modifier = Modifier
-                    .width(animatedWidth)
-                    .height(animatedHeight)
-                    .graphicsLayer {
-                        scaleX = 1.0f + animatedAmplitude * 0.3f
-                        scaleY = 1.0f + animatedAmplitude * 0.3f
-                        alpha = (1.0f - animatedAmplitude) * 0.35f
-                    }
-                    .background(Color(0xFF5B8DEF).copy(alpha = 0.35f), ringShape)
-            )
+                        // Ring B: scale = 1.0 + amplitude * 0.3, alpha = 0.1225 * (1.0 - amplitude)
+                        val scaleB = 1.0f + animatedAmplitude * 0.3f
+                        val alphaB = 0.1225f * (1.0f - animatedAmplitude)
 
-            // Layer C: Tight inner pulse
-            Box(
-                modifier = Modifier
-                    .width(animatedWidth)
-                    .height(animatedHeight)
-                    .graphicsLayer {
-                        scaleX = 1.0f + animatedAmplitude * 0.15f
-                        scaleY = 1.0f + animatedAmplitude * 0.15f
-                        alpha = 0.6f - (animatedAmplitude * 0.15f)
+                        // Ring C: scale = 1.0 + amplitude * 0.15, alpha = 0.6 - (amplitude * 0.15)
+                        val scaleC = 1.0f + animatedAmplitude * 0.15f
+                        val alphaC = 0.6f - (animatedAmplitude * 0.15f)
+
+                        // Draw Ring A
+                        if (alphaA > 0f) {
+                            scale(scaleA) {
+                                drawRoundRect(
+                                    color = colorBlue.copy(alpha = alphaA),
+                                    cornerRadius = CornerRadius(cornerRadius)
+                                )
+                            }
+                        }
+
+                        // Draw Ring B
+                        if (alphaB > 0f) {
+                            scale(scaleB) {
+                                drawRoundRect(
+                                    color = colorBlue.copy(alpha = alphaB),
+                                    cornerRadius = CornerRadius(cornerRadius)
+                                )
+                            }
+                        }
+
+                        // Draw Ring C
+                        if (alphaC > 0f) {
+                            scale(scaleC) {
+                                val brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        colorBlue.copy(alpha = 0.3f * alphaC),
+                                        Color.Transparent
+                                    ),
+                                    center = center,
+                                    radius = size.width.coerceAtLeast(size.height) / 2f
+                                )
+                                drawRoundRect(
+                                    brush = brush,
+                                    cornerRadius = CornerRadius(cornerRadius)
+                                )
+                                val strokeWidth = 1.dp.toPx()
+                                drawRoundRect(
+                                    color = Color.White.copy(alpha = 0.3f * alphaC),
+                                    cornerRadius = CornerRadius(cornerRadius),
+                                    style = Stroke(width = strokeWidth)
+                                )
+                            }
+                        }
                     }
-                    .border(1.dp, Color.White.copy(alpha = 0.3f), ringShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFF5B8DEF).copy(alpha = 0.3f),
-                                Color(0x005B8DEF)
-                            )
-                        ),
-                        ringShape
-                    )
             )
         } else if (state == OverlayState.IDLE) {
-            // Static idle ring avoids continuous redraw while the keyboard is open.
+            // Static idle ring draws efficiently once.
             Box(
                 modifier = Modifier
                     .size(56.dp)
-                    .graphicsLayer {
-                        scaleX = 1.1f
-                        scaleY = 1.1f
-                        alpha = 0.35f
+                    .drawBehind {
+                        val strokeWidth = 1.dp.toPx()
+                        scale(1.1f) {
+                            drawCircle(
+                                color = Color(0xFF5B8DEF).copy(alpha = 0.3f * 0.35f),
+                                style = Stroke(width = strokeWidth)
+                            )
+                        }
                     }
-                    .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.3f), CircleShape)
             )
         }
 
@@ -433,81 +452,83 @@ fun OverlayUi(
                     }
                 }
         ) {
-            AnimatedContent(
+            Crossfade(
                 targetState = state,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
-                },
-                contentAlignment = Alignment.Center,
+                animationSpec = tween(220),
                 modifier = Modifier.fillMaxSize(),
                 label = "overlayContent"
             ) { currentState ->
-                when (currentState) {
-                    OverlayState.TRANSCRIBING -> {
-                        CircularProgressIndicator(
-                            color = Color(0xFF5B8DEF),
-                            strokeWidth = 3.dp,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .padding(2.dp)
-                        )
-                    }
-                    OverlayState.RECORDING_TAP -> {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = { onCancelRecording() },
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (currentState) {
+                        OverlayState.TRANSCRIBING -> {
+                            CircularProgressIndicator(
+                                color = Color(0xFF5B8DEF),
+                                strokeWidth = 3.dp,
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFE5484D).copy(alpha = 0.15f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Cancel",
-                                    tint = Color(0xFFE5484D),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF5B8DEF))
+                                    .size(28.dp)
+                                    .padding(2.dp)
                             )
-
-                            IconButton(
-                                onClick = { onStopRecording() },
+                        }
+                        OverlayState.RECORDING_TAP -> {
+                            Row(
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Done",
-                                    tint = Color(0xFF10B981),
-                                    modifier = Modifier.size(18.dp)
+                                IconButton(
+                                    onClick = { onCancelRecording() },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE5484D).copy(alpha = 0.15f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel",
+                                        tint = Color(0xFFE5484D),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF5B8DEF))
                                 )
+
+                                IconButton(
+                                    onClick = { onStopRecording() },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Done",
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
-                    }
-                    else -> {
-                        // Visual mic icon only — touch handled by parent Box
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Mic",
-                            tint = Color.White,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(15.dp)
-                        )
+                        else -> {
+                            // Visual mic icon only — touch handled by parent Box
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Mic",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(15.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -47,6 +47,7 @@ import com.example.whisperflow.accessibility.WhisperAccessibilityService
 import com.example.whisperflow.audio.VoiceRecorder
 import com.example.whisperflow.network.SecurityUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
@@ -69,6 +70,7 @@ fun MainScreen(
     onOpenOverlaySettings: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var apiKey by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
@@ -92,22 +94,26 @@ fun MainScreen(
     }
 
     // Translation Target Language (English, Spanish, or None)
-    val languageOptions = listOf(
-        "none" to "None",
-        "english" to "English",
-        "spanish" to "Spanish"
-    )
+    val languageOptions = remember {
+        listOf(
+            "none" to "None",
+            "english" to "English",
+            "spanish" to "Spanish"
+        )
+    }
     var selectedLanguage by remember {
         mutableStateOf("none")
     }
 
     // AI Enhancement Model Selection
-    val aiModelOptions = listOf(
-        "none" to "None",
-        "llama-3.2-3b-preview" to "Llama 3.2 3B (Fast)",
-        "mixtral-8x7b-32768" to "Mixtral 8x7B (Powerful)",
-        "gemma2-9b-it" to "Gemma 2 9B (Balanced)"
-    )
+    val aiModelOptions = remember {
+        listOf(
+            "none" to "None",
+            "llama-3.2-3b-preview" to "Llama 3.2 3B (Fast)",
+            "mixtral-8x7b-32768" to "Mixtral 8x7B (Powerful)",
+            "gemma2-9b-it" to "Gemma 2 9B (Balanced)"
+        )
+    }
     var selectedAiModel by remember {
         mutableStateOf("none")
     }
@@ -145,6 +151,13 @@ fun MainScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isServiceAccessible = isAccessibilityServiceEnabled(context)
+                // Reload history on resume to sync changes from dictation service
+                scope.launch(Dispatchers.IO) {
+                    val updatedHistory = loadHistory(context)
+                    withContext(Dispatchers.Main) {
+                        historyItems = updatedHistory
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -167,16 +180,20 @@ fun MainScreen(
     }
 
     fun saveAllSettings() {
-        SecurityUtils.saveSettings(
-            context = context,
-            apiKey = apiKey,
-            whisperModel = selectedModel,
-            interactionMode = interactionMode,
-            audioSource = selectedAudioSource,
-            targetLanguage = selectedLanguage,
-            aiEnhancementModel = selectedAiModel
-        )
-        showSavedIcon = true
+        scope.launch(Dispatchers.IO) {
+            SecurityUtils.saveSettings(
+                context = context,
+                apiKey = apiKey,
+                whisperModel = selectedModel,
+                interactionMode = interactionMode,
+                audioSource = selectedAudioSource,
+                targetLanguage = selectedLanguage,
+                aiEnhancementModel = selectedAiModel
+            )
+            withContext(Dispatchers.Main) {
+                showSavedIcon = true
+            }
+        }
     }
 
     Box(
@@ -315,7 +332,9 @@ fun MainScreen(
                                 checked = isServiceEnabled,
                                 onCheckedChange = { enabled ->
                                     isServiceEnabled = enabled
-                                    SecurityUtils.putBoolean(context, "service_enabled", enabled)
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.putBoolean(context, "service_enabled", enabled)
+                                    }
                                 },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = Color(0xFF10B981),
@@ -505,7 +524,9 @@ fun MainScreen(
                                             onClick = {
                                                 selectedAudioSource = source
                                                 isSourceDropdownExpanded = false
-                                                SecurityUtils.putInt(context, "audio_source", source)
+                                                scope.launch(Dispatchers.IO) {
+                                                    SecurityUtils.putInt(context, "audio_source", source)
+                                                }
                                             }
                                         )
                                     }
@@ -610,7 +631,9 @@ fun MainScreen(
                                         onClick = {
                                             selectedModel = "whisper-large-v3"
                                             isModelDropdownExpanded = false
-                                            SecurityUtils.putString(context, "whisper_model", "whisper-large-v3")
+                                            scope.launch(Dispatchers.IO) {
+                                                SecurityUtils.putString(context, "whisper_model", "whisper-large-v3")
+                                            }
                                         }
                                     )
                                     DropdownMenuItem(
@@ -623,7 +646,9 @@ fun MainScreen(
                                         onClick = {
                                             selectedModel = "whisper-large-v3-turbo"
                                             isModelDropdownExpanded = false
-                                            SecurityUtils.putString(context, "whisper_model", "whisper-large-v3-turbo")
+                                            scope.launch(Dispatchers.IO) {
+                                                SecurityUtils.putString(context, "whisper_model", "whisper-large-v3-turbo")
+                                            }
                                         }
                                     )
                                 }
@@ -733,7 +758,9 @@ fun MainScreen(
                                             onClick = {
                                                 selectedLanguage = lang
                                                 isLangDropdownExpanded = false
-                                                SecurityUtils.putString(context, "target_language", lang)
+                                                scope.launch(Dispatchers.IO) {
+                                                    SecurityUtils.putString(context, "target_language", lang)
+                                                }
                                             }
                                         )
                                     }
@@ -850,7 +877,9 @@ fun MainScreen(
                                             onClick = {
                                                 selectedAiModel = model
                                                 isAiDropdownExpanded = false
-                                                SecurityUtils.putString(context, "ai_enhancement_model", model)
+                                                scope.launch(Dispatchers.IO) {
+                                                    SecurityUtils.putString(context, "ai_enhancement_model", model)
+                                                }
                                             }
                                         )
                                     }
@@ -926,7 +955,9 @@ fun MainScreen(
                                     selectedColor = Color(0xFF5B8DEF),
                                     onClick = {
                                         interactionMode = "HOLD_TO_TALK"
-                                        SecurityUtils.putString(context, "interaction_mode", "HOLD_TO_TALK")
+                                        scope.launch(Dispatchers.IO) {
+                                            SecurityUtils.putString(context, "interaction_mode", "HOLD_TO_TALK")
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -939,7 +970,9 @@ fun MainScreen(
                                     selectedColor = Color(0xFF5B8DEF),
                                     onClick = {
                                         interactionMode = "TAP_TO_TALK"
-                                        SecurityUtils.putString(context, "interaction_mode", "TAP_TO_TALK")
+                                        scope.launch(Dispatchers.IO) {
+                                            SecurityUtils.putString(context, "interaction_mode", "TAP_TO_TALK")
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -1007,7 +1040,9 @@ fun MainScreen(
                         if (historyItems.isNotEmpty()) {
                             TextButton(
                                 onClick = {
-                                    SecurityUtils.remove(context, "transcription_history")
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.remove(context, "transcription_history")
+                                    }
                                     historyItems = emptyList()
                                 },
                                 colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE5484D))
@@ -1114,7 +1149,9 @@ fun MainScreen(
                                     IconButton(
                                         onClick = {
                                             historyItems = historyItems - historyEntry
-                                            saveHistoryList(context, historyItems)
+                                            scope.launch(Dispatchers.IO) {
+                                                saveHistoryList(context, historyItems)
+                                            }
                                         },
                                         modifier = Modifier.size(32.dp)
                                     ) {

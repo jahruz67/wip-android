@@ -17,9 +17,10 @@ class VoiceRecorder(private val context: Context) {
 
     private var mediaRecorder: MediaRecorder? = null
     private var outputFile: File? = null
+    @Volatile
+    private var isRecording = false
 
     companion object {
-        private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val cleanupStarted = AtomicBoolean(false)
 
         // Maps MediaRecorder audio source constants to their display names
@@ -113,15 +114,18 @@ class VoiceRecorder(private val context: Context) {
     }
 
     init {
-        if (cleanupStarted.compareAndSet(false, true)) cleanupScope.launch {
-            try {
-                context.cacheDir.listFiles()?.forEach { file ->
-                    if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
-                        file.delete()
+        if (cleanupStarted.compareAndSet(false, true)) {
+            val appCtx = context.applicationContext
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    appCtx.cacheDir.listFiles()?.forEach { file ->
+                        if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
+                            file.delete()
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e("VoiceRecorder", "Failed to clean legacy audio files: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.e("VoiceRecorder", "Failed to clean legacy audio files: ${e.message}")
             }
         }
     }
@@ -145,9 +149,11 @@ class VoiceRecorder(private val context: Context) {
                 setOutputFile(outputFile?.absolutePath)
                 prepare()
                 start()
+                isRecording = true
             } catch (e: Exception) {
                 Log.e("VoiceRecorder", "Failed to start recording: ${e.message}")
                 releaseRecorder()
+                isRecording = false
                 return null
             }
         }
@@ -155,6 +161,7 @@ class VoiceRecorder(private val context: Context) {
     }
 
     fun stopRecording(): File? {
+        isRecording = false
         try {
             mediaRecorder?.apply {
                 stop()
@@ -169,6 +176,7 @@ class VoiceRecorder(private val context: Context) {
     }
 
     fun cancelRecording() {
+        isRecording = false
         stopRecording()
         outputFile?.let {
             if (it.exists()) {
@@ -179,9 +187,12 @@ class VoiceRecorder(private val context: Context) {
     }
 
     fun getMaxAmplitude(): Int {
+        if (!isRecording || mediaRecorder == null) return 0
         return try {
             mediaRecorder?.maxAmplitude ?: 0
         } catch (e: Exception) {
+            Log.e("VoiceRecorder", "Failed to get max amplitude: ${e.message}")
+            isRecording = false
             0
         }
     }

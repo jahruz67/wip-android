@@ -48,7 +48,9 @@ interface GroqApiService {
         @Part("model") model: RequestBody,
         @Part("language") language: RequestBody? = null,
         @Part("prompt") prompt: RequestBody? = null,
-        @Part("response_format") responseFormat: RequestBody? = null
+        @Part("response_format") responseFormat: RequestBody? = null,
+        @Header("X-Write-Timeout") writeTimeout: String = "60000",
+        @Header("X-Read-Timeout") readTimeout: String = "60000"
     ): TranscriptionResponse
 
     @Multipart
@@ -56,7 +58,9 @@ interface GroqApiService {
     suspend fun translateAudio(
         @Header("Authorization") authHeader: String,
         @Part file: MultipartBody.Part,
-        @Part("model") model: RequestBody
+        @Part("model") model: RequestBody,
+        @Header("X-Write-Timeout") writeTimeout: String = "60000",
+        @Header("X-Read-Timeout") readTimeout: String = "60000"
     ): TranscriptionResponse
 
     @POST("openai/v1/chat/completions")
@@ -97,6 +101,32 @@ interface GroqApiService {
 
             val client = OkHttpClient.Builder()
                 .addInterceptor(logger)
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    var connectTimeout = chain.connectTimeoutMillis()
+                    var readTimeout = chain.readTimeoutMillis()
+                    var writeTimeout = chain.writeTimeoutMillis()
+
+                    val connectHeader = request.header("X-Connect-Timeout")
+                    val readHeader = request.header("X-Read-Timeout")
+                    val writeHeader = request.header("X-Write-Timeout")
+
+                    val newRequest = request.newBuilder()
+                        .removeHeader("X-Connect-Timeout")
+                        .removeHeader("X-Read-Timeout")
+                        .removeHeader("X-Write-Timeout")
+                        .build()
+
+                    connectHeader?.toIntOrNull()?.let { connectTimeout = it }
+                    readHeader?.toIntOrNull()?.let { readTimeout = it }
+                    writeHeader?.toIntOrNull()?.let { writeTimeout = it }
+
+                    chain
+                        .withConnectTimeout(connectTimeout, TimeUnit.MILLISECONDS)
+                        .withReadTimeout(readTimeout, TimeUnit.MILLISECONDS)
+                        .withWriteTimeout(writeTimeout, TimeUnit.MILLISECONDS)
+                        .proceed(newRequest)
+                }
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                 .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)

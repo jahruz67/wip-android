@@ -41,6 +41,9 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        serviceScope.launch(Dispatchers.IO) {
+            SecurityUtils.getEncryptedSharedPreferences(applicationContext)
+        }
         overlayManager = OverlayManager(
             context = this,
             onTextTranscribed = { transcribedText ->
