@@ -122,7 +122,7 @@ fun MainScreen(
                 interactionMode = SecurityUtils.getString(context, "interaction_mode", "HOLD_TO_TALK"),
                 isServiceEnabled = SecurityUtils.getBoolean(context, "service_enabled", true),
                 selectedAudioSource = SecurityUtils.getInt(context, "audio_source", MediaRecorder.AudioSource.MIC),
-                selectedLanguage = SecurityUtils.getString(context, "target_language", "english"),
+                selectedLanguage = SecurityUtils.getString(context, "target_language", "none"),
                 selectedAiModel = SecurityUtils.getString(context, "ai_enhancement_model", "none"),
                 historyItems = loadHistory(context)
             )

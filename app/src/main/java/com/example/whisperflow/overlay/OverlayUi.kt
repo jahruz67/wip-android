@@ -159,9 +159,7 @@ fun OverlayUi(
             visible = showLanguagePopup,
             enter = fadeIn() + scaleIn(initialScale = 0.8f),
             exit = fadeOut() + scaleOut(targetScale = 0.8f),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = (-100).dp)
+            modifier = Modifier.align(Alignment.Center)
         ) {
             val context = LocalContext.current
             var targetLanguage by remember { mutableStateOf("english") }
@@ -169,17 +167,22 @@ fun OverlayUi(
             LaunchedEffect(showLanguagePopup) {
                 if (showLanguagePopup) {
                     targetLanguage = withContext(Dispatchers.IO) {
-                        SecurityUtils.getString(context, "target_language", "english")
+                        SecurityUtils.getString(context, "target_language", "none")
                     }
                 }
             }
 
             Box(
                 modifier = Modifier
+                    .offset(y = (-100).dp)
                     .width(140.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.95f))
                     .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
                     .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
                 Column(

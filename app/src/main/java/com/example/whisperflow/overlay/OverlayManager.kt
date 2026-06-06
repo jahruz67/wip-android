@@ -254,7 +254,7 @@ class OverlayManager(
                     apiKey = SecurityUtils.getString(context, "api_key", ""),
                     modelName = SecurityUtils.getString(context, "whisper_model", "whisper-large-v3"),
                     aiEnhancementModel = SecurityUtils.getString(context, "ai_enhancement_model", "none"),
-                    targetLanguage = SecurityUtils.getString(context, "target_language", "english")
+                    targetLanguage = SecurityUtils.getString(context, "target_language", "none")
                 )
             }
 
@@ -366,6 +366,7 @@ class OverlayManager(
                 // Step 3: Apply AI Enhancement if selected
                 if (settings.aiEnhancementModel != "none" && finalText.isNotEmpty()) {
                     val enhancerModel = when (settings.aiEnhancementModel) {
+                        "llama-3.2-3b-preview" -> "llama-3.2-3b-preview"
                         "mixtral-8x7b-32768" -> "mixtral-8x7b-32768"
                         "gemma2-9b-it" -> "gemma2-9b-it"
                         else -> "llama-3.1-8b-instant"
