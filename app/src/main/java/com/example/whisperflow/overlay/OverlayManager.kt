@@ -133,6 +133,9 @@ class OverlayManager(
     private var hasChromeInsets = false
     private var currentChromeInsetX = 0
     private var currentChromeInsetY = 0
+    private var isUserDragging = false
+    private var pendingInsetX: Int? = null
+    private var pendingInsetY: Int? = null
 
     private val frameCallback = object : android.view.Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -149,6 +152,57 @@ class OverlayManager(
             }
             isFrameCallbackScheduled = false
         }
+    }
+
+    private fun scheduleFrameUpdate() {
+        if (!isFrameCallbackScheduled) {
+            isFrameCallbackScheduled = true
+            try {
+                android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to post frame callback", e)
+                composeView?.let { view ->
+                    try {
+                        params.x = pendingX
+                        params.y = pendingY
+                        windowManager.updateViewLayout(view, params)
+                    } catch (ex: Exception) {
+                        Log.e(TAG, "Failed fallback layout update", ex)
+                    }
+                }
+                isFrameCallbackScheduled = false
+            }
+        }
+    }
+
+    private fun flushPendingInsets() {
+        val pX = pendingInsetX
+        val pY = pendingInsetY
+        if (pX == null || pY == null) return
+        if (!hasChromeInsets) {
+            currentChromeInsetX = pX
+            currentChromeInsetY = pY
+            hasChromeInsets = true
+            pendingInsetX = null
+            pendingInsetY = null
+            return
+        }
+        val deltaX = pX - currentChromeInsetX
+        val deltaY = pY - currentChromeInsetY
+        if (deltaX == 0 && deltaY == 0) {
+            pendingInsetX = null
+            pendingInsetY = null
+            return
+        }
+        currentChromeInsetX = pX
+        currentChromeInsetY = pY
+        floatX -= deltaX
+        floatY -= deltaY
+        pendingX = floatX.toInt()
+        pendingY = floatY.toInt()
+        pendingInsetX = null
+        pendingInsetY = null
+        scheduleFrameUpdate()
     }
 
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -469,13 +523,8 @@ class OverlayManager(
             params.y = pendingY
         }
 
-        composeView?.let { view ->
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update overlay position for expansion", e)
-            }
-        }
+        // Use the scheduled frame update path to avoid racing with drag updates.
+        scheduleFrameUpdate()
     }
 
     private fun cleanupStaleAudioFiles() {
@@ -505,22 +554,20 @@ class OverlayManager(
         val deltaY = insetY - currentChromeInsetY
         if (deltaX == 0 && deltaY == 0) return
 
+        // Defer applying inset compensation while the user is actively dragging.
+        if (isUserDragging) {
+            pendingInsetX = insetX
+            pendingInsetY = insetY
+            return
+        }
+
         currentChromeInsetX = insetX
         currentChromeInsetY = insetY
         floatX -= deltaX
         floatY -= deltaY
         pendingX = floatX.toInt()
         pendingY = floatY.toInt()
-        params.x = pendingX
-        params.y = pendingY
-
-        composeView?.let { view ->
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update chrome insets", e)
-            }
-        }
+        scheduleFrameUpdate()
     }
 
     fun showOverlay(interactionMode: String) {
@@ -560,6 +607,7 @@ class OverlayManager(
                         updateChromeInsets(insetX, insetY)
                     },
                     onDragStart = {
+                        isUserDragging = true
                         dismissJob?.cancel()
                         dismissJob = scope.launch {
                             delay(1000)
@@ -582,23 +630,7 @@ class OverlayManager(
                                 if (nextX != params.x || nextY != params.y) {
                                     pendingX = nextX
                                     pendingY = nextY
-
-                                    if (!isFrameCallbackScheduled) {
-                                        isFrameCallbackScheduled = true
-                                        try {
-                                            android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "Failed to post frame callback", e)
-                                            params.x = pendingX
-                                            params.y = pendingY
-                                            try {
-                                                windowManager.updateViewLayout(this, params)
-                                            } catch (ex: Exception) {
-                                                Log.e(TAG, "Failed fallback layout update", ex)
-                                            }
-                                            isFrameCallbackScheduled = false
-                                        }
-                                    }
+                                    scheduleFrameUpdate()
                                 }
 
                                 if (dismissComposeView != null) {
@@ -617,11 +649,16 @@ class OverlayManager(
                         }
                     },
                     onDragEnd = {
+                        isUserDragging = false
                         if (isNearDismissTarget) {
                             hideOverlay()
                             onDismissed?.invoke()
                         }
                         hideDismissTargetView()
+                        scope.launch {
+                            delay(100)
+                            flushPendingInsets()
+                        }
                     }
                 )
             }
