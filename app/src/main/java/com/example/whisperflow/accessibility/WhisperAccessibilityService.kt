@@ -156,7 +156,11 @@ class WhisperAccessibilityService : AccessibilityService() {
         val isHint = node.isShowingHintText || currentTextStr == node.hintText?.toString()
         
         val currentText = if (isHint) "" else currentTextStr
-        val newText = if (currentText.isEmpty()) text else "$currentText $text"
+        val newText = if (currentText.isEmpty()) text else {
+            // Avoid inserting a double space when existing text already ends with whitespace
+            val separator = if (currentText.endsWith(" ") || currentText.endsWith("\n")) "" else " "
+            "$currentText$separator$text"
+        }
 
         val arguments = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)

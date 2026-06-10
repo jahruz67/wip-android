@@ -2,6 +2,7 @@ package com.example.whisperflow.overlay
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Toast
@@ -69,6 +70,11 @@ class OverlayManager(
     private val onDismissed: (() -> Unit)? = null
 ) : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
 
+    companion object {
+        private const val TAG = "OverlayManager"
+        private const val MAX_HISTORY_CHARS = 50_000
+    }
+
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var composeView: ComposeView? = null
     private var isShowing = false
@@ -100,11 +106,11 @@ class OverlayManager(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Untouchable visual target
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        y = 80 // Leaves room for extra visual padding to prevent clipping
+        y = 80
     }
 
     private val params = WindowManager.LayoutParams(
@@ -115,8 +121,8 @@ class OverlayManager(
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.START
-        x = 50 
-        y = 500 // Start somewhere in the middle
+        x = 50
+        y = 500
     }
 
     private var floatX = 50f
@@ -137,7 +143,7 @@ class OverlayManager(
                         params.y = pendingY
                         windowManager.updateViewLayout(view, params)
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Log.e(TAG, "Failed to update overlay layout in frame callback", e)
                     }
                 }
             }
@@ -191,7 +197,7 @@ class OverlayManager(
         try {
             windowManager.addView(dismissComposeView, dismissParams)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to add dismiss target view", e)
         }
     }
 
@@ -208,7 +214,7 @@ class OverlayManager(
             try {
                 windowManager.removeView(it)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Failed to remove dismiss target view", e)
             }
             dismissComposeView = null
         }
@@ -235,7 +241,7 @@ class OverlayManager(
     private fun stopRecordingAndTranscribe() {
         overlayState.value = OverlayState.TRANSCRIBING
         stopAmplitudePolling()
-        
+
         scope.launch {
             val pendingStart = startRecordingJob
             pendingStart?.join()
@@ -274,7 +280,6 @@ class OverlayManager(
                 val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
                 val responseFormatPart = "verbose_json".toRequestBody("text/plain".toMediaTypeOrNull())
 
-                // Step 1: Transcribe with Whisper (auto-detects language)
                 val response = withContext(Dispatchers.IO) {
                     apiService.transcribeAudio(
                         authHeader = "Bearer ${settings.apiKey}",
@@ -293,28 +298,22 @@ class OverlayManager(
                     return@launch
                 }
 
-                // Step 2: Translation logic
-                // User picks a target language from settings
-                // Whisper detects the spoken language
-                // If detected != target → translate, otherwise keep as-is
                 val targetLang = settings.targetLanguage.lowercase()
-                
+
                 if (targetLang == "none") {
                     finalText = rawText
                 } else {
                     val isTargetEnglish = targetLang == "english"
 
                     if (!isTargetEnglish && detectedLanguage != null) {
-                        // Target is non-English (e.g. Spanish). Check if detected is English.
                         val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
                                                 detectedLanguage.startsWith("english", ignoreCase = true)
 
                         if (isDetectedEnglish) {
-                            // Detected English, user wants Spanish → translate to Spanish
                             val translationRequest = ChatRequest(
                                 model = "llama-3.1-8b-instant",
                                 messages = listOf(
-                                ChatMessage("system", "You are a translator. Translate the following text to ${settings.targetLanguage}. The original text is in English. Return ONLY the translated text, nothing else."),
+                                    ChatMessage("system", "You are a translator. Translate the following text to ${settings.targetLanguage}. The original text is in English. Return ONLY the translated text, nothing else."),
                                     ChatMessage("user", rawText)
                                 ),
                                 temperature = 0.1f
@@ -328,16 +327,13 @@ class OverlayManager(
                             }
                             finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
                         } else {
-                            // Detected matches target (e.g. Spanish detected, target Spanish) → keep as-is
                             finalText = rawText
                         }
                     } else if (isTargetEnglish && detectedLanguage != null) {
-                        // Target is English. Check if detected is non-English.
                         val isDetectedEnglish = detectedLanguage.startsWith("en", ignoreCase = true) ||
                                                 detectedLanguage.startsWith("english", ignoreCase = true)
 
                         if (!isDetectedEnglish) {
-                            // Detected non-English, user wants English → translate to English
                             val translationRequest = ChatRequest(
                                 model = "llama-3.1-8b-instant",
                                 messages = listOf(
@@ -355,16 +351,13 @@ class OverlayManager(
                             }
                             finalText = translationResponse.choices.firstOrNull()?.message?.content ?: rawText
                         } else {
-                            // English detected, target English → keep as-is
                             finalText = rawText
                         }
                     } else {
-                        // No detected language available or English target with no detected lang
                         finalText = rawText
                     }
                 }
 
-                // Step 3: Apply AI Enhancement if selected
                 if (settings.aiEnhancementModel != "none" && finalText.isNotEmpty()) {
                     val enhancerModel = when (settings.aiEnhancementModel) {
                         "llama-3.2-3b-preview" -> "llama-3.2-3b-preview"
@@ -389,7 +382,6 @@ class OverlayManager(
                         )
                     }
                     var enhancedText = enhanceResponse.choices.firstOrNull()?.message?.content ?: finalText
-                    // Clean up potential LLM quoting/wrapping artifacts
                     if (enhancedText.startsWith("\"") && enhancedText.endsWith("\"")) {
                         enhancedText = enhancedText.removeSurrounding("\"")
                     } else if (enhancedText.startsWith("`") && enhancedText.endsWith("`")) {
@@ -405,8 +397,9 @@ class OverlayManager(
                     onTextTranscribed(finalText)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                ToastHelper.showToast(context, "Transcription failed: ${e.localizedMessage}", Toast.LENGTH_LONG)
+                Log.e(TAG, "Transcription failed", e)
+                val errorMsg = e.message ?: e.localizedMessage ?: "Unknown error"
+                ToastHelper.showToast(context, "Transcription failed: $errorMsg", Toast.LENGTH_LONG)
             } finally {
                 withContext(Dispatchers.IO) { file.delete() }
                 overlayState.value = OverlayState.IDLE
@@ -420,14 +413,24 @@ class OverlayManager(
             val encodedText = java.net.URLEncoder.encode(text, "UTF-8")
             val newEntry = "${System.currentTimeMillis()}:$encodedText"
             val updated = if (existing.isEmpty()) newEntry else "$existing|$newEntry"
-            
+
             // Keep only last 100 entries
             val entries = updated.split("|")
             val trimmed = if (entries.size > 100) entries.takeLast(100).joinToString("|") else updated
-            
-            SecurityUtils.putString(context, "transcription_history", trimmed)
+
+            // Enforce a hard character limit to prevent SharedPreferences size issues
+            // (EncryptedSharedPreferences has overhead; 50KB of raw text is a safe ceiling)
+            val finalHistory = if (trimmed.length > MAX_HISTORY_CHARS) {
+                val idx = trimmed.length - MAX_HISTORY_CHARS
+                val pipeIdx = trimmed.indexOf('|', idx)
+                if (pipeIdx >= 0) trimmed.substring(pipeIdx + 1) else trimmed.takeLast(MAX_HISTORY_CHARS)
+            } else {
+                trimmed
+            }
+
+            SecurityUtils.putString(context, "transcription_history", finalHistory)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to save history entry", e)
         }
     }
 
@@ -445,8 +448,6 @@ class OverlayManager(
         val screenWidth = displayMetrics.widthPixels
         val screenHeight = displayMetrics.heightPixels
 
-        // Expanded total layout size: 130.dp (capsule) + 96.dp (ambient rings padding) = 226.dp width
-        // Expanded total height: 56.dp (capsule) + 96.dp (ambient rings padding) = 152.dp height
         val expandedWidthPx = (226f * density).toInt()
         val expandedHeightPx = (152f * density).toInt()
 
@@ -472,8 +473,23 @@ class OverlayManager(
             try {
                 windowManager.updateViewLayout(view, params)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Failed to update overlay position for expansion", e)
             }
+        }
+    }
+
+    private fun cleanupStaleAudioFiles() {
+        try {
+            context.cacheDir.listFiles()?.forEach { file ->
+                if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
+                    // Delete files older than 1 hour (orphaned from crashed/killed sessions)
+                    if (System.currentTimeMillis() - file.lastModified() > 3_600_000) {
+                        file.delete()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clean stale audio files", e)
         }
     }
 
@@ -502,7 +518,7 @@ class OverlayManager(
             try {
                 windowManager.updateViewLayout(view, params)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Failed to update chrome insets", e)
             }
         }
     }
@@ -511,6 +527,9 @@ class OverlayManager(
         if (isShowing) return
         overlayState.value = OverlayState.IDLE
         hasChromeInsets = false
+
+        // Best-effort cleanup of any orphaned audio files from previous sessions
+        cleanupStaleAudioFiles()
 
         val initialTargetLanguage = SecurityUtils.getString(context, "target_language", "none")
 
@@ -543,7 +562,7 @@ class OverlayManager(
                     onDragStart = {
                         dismissJob?.cancel()
                         dismissJob = scope.launch {
-                            delay(1000) // Show target if dragging for > 1 second
+                            delay(1000)
                             showDismissTargetView()
                         }
                     },
@@ -556,7 +575,7 @@ class OverlayManager(
                             if (viewWidth > 0 && viewHeight > 0) {
                                 floatX = (floatX + dx).coerceIn(-safePaddingPx.toFloat(), (screenWidth - viewWidth + safePaddingPx).toFloat())
                                 floatY = (floatY + dy).coerceIn(-safePaddingPx.toFloat(), (screenHeight - viewHeight + safePaddingPx).toFloat())
-                                
+
                                 val nextX = floatX.toInt()
                                 val nextY = floatY.toInt()
 
@@ -569,14 +588,13 @@ class OverlayManager(
                                         try {
                                             android.view.Choreographer.getInstance().postFrameCallback(frameCallback)
                                         } catch (e: Exception) {
-                                            e.printStackTrace()
-                                            // Fallback in case Choreographer is unavailable or encounters issues
+                                            Log.e(TAG, "Failed to post frame callback", e)
                                             params.x = pendingX
                                             params.y = pendingY
                                             try {
                                                 windowManager.updateViewLayout(this, params)
                                             } catch (ex: Exception) {
-                                                ex.printStackTrace()
+                                                Log.e(TAG, "Failed fallback layout update", ex)
                                             }
                                             isFrameCallbackScheduled = false
                                         }
@@ -615,10 +633,10 @@ class OverlayManager(
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
             isShowing = true
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to add overlay view", e)
             try {
                 composeView?.disposeComposition()
-            } catch (ex: Exception) {}
+            } catch (ex: Exception) { /* already failing */ }
             composeView = null
             isShowing = false
         }
@@ -628,11 +646,15 @@ class OverlayManager(
         dismissJob?.cancel()
         hideDismissTargetView()
 
+        // Cancel any in-flight recording start before tearing down the overlay
+        startRecordingJob?.cancel()
+        startRecordingJob = null
+
         if (isFrameCallbackScheduled) {
             try {
                 android.view.Choreographer.getInstance().removeFrameCallback(frameCallback)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Failed to remove frame callback", e)
             }
             isFrameCallbackScheduled = false
         }
@@ -646,7 +668,7 @@ class OverlayManager(
                 it.disposeComposition()
                 windowManager.removeView(it)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Failed to remove overlay view", e)
             }
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -665,7 +687,7 @@ class OverlayManager(
     @Composable
     fun DismissTargetUi(isNear: Boolean) {
         val scale by animateFloatAsState(targetValue = if (isNear) 1.15f else 1.0f, label = "scale")
-        
+
         Box(
             modifier = Modifier
                 .width(192.dp)
@@ -673,7 +695,6 @@ class OverlayManager(
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Broad background visual gravity field
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -708,7 +729,6 @@ class OverlayManager(
                     horizontalArrangement = Arrangement.Center,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    // Glowing crimson dot/icon
                     Box(
                         modifier = Modifier
                             .size(36.dp)
@@ -723,9 +743,9 @@ class OverlayManager(
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    
+
                     Spacer(modifier = Modifier.width(10.dp))
-                    
+
                     Text(
                         text = if (isNear) "Release to Close" else "Drag here to close",
                         fontSize = 11.sp,

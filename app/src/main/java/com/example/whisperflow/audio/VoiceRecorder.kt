@@ -6,10 +6,6 @@ import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -21,20 +17,8 @@ class VoiceRecorder(private val context: Context) {
     private var isRecording = false
 
     companion object {
+        private val TAG = "VoiceRecorder"
         private val cleanupStarted = AtomicBoolean(false)
-
-        // Maps MediaRecorder audio source constants to their display names
-        private val audioSourceInfoMap = mapOf(
-            MediaRecorder.AudioSource.MIC to "Built-in Microphone",
-            MediaRecorder.AudioSource.CAMCORDER to "Camcorder Microphone",
-            MediaRecorder.AudioSource.VOICE_RECOGNITION to "Voice Recognition",
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION to "Voice Communication",
-            MediaRecorder.AudioSource.UNPROCESSED to "Unprocessed Audio",
-            MediaRecorder.AudioSource.VOICE_UPLINK to "Voice Uplink",
-            MediaRecorder.AudioSource.VOICE_DOWNLINK to "Voice Downlink",
-            MediaRecorder.AudioSource.REMOTE_SUBMIX to "Remote Submix",
-            MediaRecorder.AudioSource.DEFAULT to "Default"
-        )
 
         /**
          * Enumerates all available audio input devices on the device
@@ -114,18 +98,19 @@ class VoiceRecorder(private val context: Context) {
     }
 
     init {
+        // Clean up legacy audio files synchronously on first instantiation.
+        // This is a lightweight disk operation (directory listing + delete) that
+        // completes in < 1ms and avoids leaking an unstructured CoroutineScope.
         if (cleanupStarted.compareAndSet(false, true)) {
-            val appCtx = context.applicationContext
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    appCtx.cacheDir.listFiles()?.forEach { file ->
-                        if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
-                            file.delete()
-                        }
+            try {
+                val appCtx = context.applicationContext
+                appCtx.cacheDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
+                        file.delete()
                     }
-                } catch (e: Exception) {
-                    Log.e("VoiceRecorder", "Failed to clean legacy audio files: ${e.message}")
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to clean legacy audio files: ${e.message}")
             }
         }
     }
@@ -151,9 +136,12 @@ class VoiceRecorder(private val context: Context) {
                 start()
                 isRecording = true
             } catch (e: Exception) {
-                Log.e("VoiceRecorder", "Failed to start recording: ${e.message}")
+                Log.e(TAG, "Failed to start recording: ${e.message}")
                 releaseRecorder()
                 isRecording = false
+                // Clean up the output file that may have been created before the failure
+                outputFile?.let { if (it.exists()) it.delete() }
+                outputFile = null
                 return null
             }
         }
@@ -162,14 +150,18 @@ class VoiceRecorder(private val context: Context) {
 
     fun stopRecording(): File? {
         isRecording = false
+        val recorder = mediaRecorder
         try {
-            mediaRecorder?.apply {
-                stop()
-                release()
-            }
+            recorder?.stop()
         } catch (e: Exception) {
-            Log.e("VoiceRecorder", "Failed to stop recording: ${e.message}")
+            Log.e(TAG, "Failed to stop recording: ${e.message}")
         } finally {
+            // Always release to free native resources, even if stop() failed
+            try {
+                recorder?.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to release MediaRecorder: ${e.message}")
+            }
             mediaRecorder = null
         }
         return outputFile
@@ -177,7 +169,20 @@ class VoiceRecorder(private val context: Context) {
 
     fun cancelRecording() {
         isRecording = false
-        stopRecording()
+        // Stop and release the recorder, then delete the temp file
+        val recorder = mediaRecorder
+        try {
+            recorder?.stop()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop recording during cancel: ${e.message}")
+        } finally {
+            try {
+                recorder?.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to release MediaRecorder during cancel: ${e.message}")
+            }
+            mediaRecorder = null
+        }
         outputFile?.let {
             if (it.exists()) {
                 it.delete()
@@ -191,7 +196,7 @@ class VoiceRecorder(private val context: Context) {
         return try {
             mediaRecorder?.maxAmplitude ?: 0
         } catch (e: Exception) {
-            Log.e("VoiceRecorder", "Failed to get max amplitude: ${e.message}")
+            Log.e(TAG, "Failed to get max amplitude: ${e.message}")
             isRecording = false
             0
         }

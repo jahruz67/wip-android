@@ -12,7 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
-import kotlinx.coroutines.CoroutineScope
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.example.whisperflow.network.SecurityUtils
@@ -21,8 +21,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Warm the value cache asynchronously to prevent main thread keystore initialization delays
-        CoroutineScope(Dispatchers.IO).launch {
+        // Warm the value cache asynchronously to prevent main thread keystore initialization delays.
+        // Uses lifecycleScope so the coroutine is cancelled if the activity is destroyed.
+        lifecycleScope.launch(Dispatchers.IO) {
             SecurityUtils.getEncryptedSharedPreferences(applicationContext)
         }
 

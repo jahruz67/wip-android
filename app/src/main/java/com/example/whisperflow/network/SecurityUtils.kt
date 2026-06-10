@@ -7,7 +7,20 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 object SecurityUtils {
+    private const val TAG = "SecurityUtils"
     private const val SECURE_PREFS_FILE = "whisperflow_prefs_secure"
+
+    // All settings keys with their default values, used for complete migration
+    // from plaintext to encrypted SharedPreferences.
+    private val PLAIN_PREF_KEYS_DEFAULTS = mapOf(
+        "api_key" to "",
+        "whisper_model" to "whisper-large-v3",
+        "interaction_mode" to "HOLD_TO_TALK",
+        "audio_source" to android.media.MediaRecorder.AudioSource.MIC,
+        "target_language" to "none",
+        "ai_enhancement_model" to "none",
+        "service_enabled" to true
+    )
     @Volatile
     private var cachedPrefs: SharedPreferences? = null
     private val valueCache = mutableMapOf<String, Any?>()
@@ -132,7 +145,9 @@ object SecurityUtils {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            Log.e("SecurityUtils", "Failed to create EncryptedSharedPreferences, falling back to standard SharedPreferences", e)
+            Log.e(TAG, "Failed to create EncryptedSharedPreferences — " +
+                "API key will be stored in unencrypted storage. " +
+                "This is a security risk on rooted devices.", e)
             // Fallback to standard SharedPreferences in case Keystore fails (rare, e.g., on custom broken ROMs)
             return context.applicationContext.getSharedPreferences("whisperflow_prefs", Context.MODE_PRIVATE)
         }
@@ -141,21 +156,25 @@ object SecurityUtils {
         val plainPrefs = context.applicationContext.getSharedPreferences("whisperflow_prefs", Context.MODE_PRIVATE)
         if (plainPrefs.contains("api_key")) {
             try {
-                val oldApiKey = plainPrefs.getString("api_key", "") ?: ""
-                val oldModel = plainPrefs.getString("whisper_model", "whisper-large-v3") ?: "whisper-large-v3"
-                val oldMode = plainPrefs.getString("interaction_mode", "HOLD_TO_TALK") ?: "HOLD_TO_TALK"
-
-                securePrefs.edit().apply {
-                    putString("api_key", oldApiKey)
-                    putString("whisper_model", oldModel)
-                    putString("interaction_mode", oldMode)
-                    apply()
+                // Migrate ALL known settings, not just a subset
+                val editor = securePrefs.edit()
+                for ((key, defaultValue) in PLAIN_PREF_KEYS_DEFAULTS) {
+                    val value = plainPrefs.all[key] ?: defaultValue
+                    when (value) {
+                        is String -> editor.putString(key, value)
+                        is Int -> editor.putInt(key, value)
+                        is Boolean -> editor.putBoolean(key, value)
+                        is Float -> editor.putFloat(key, value)
+                        is Long -> editor.putLong(key, value)
+                    }
                 }
+                editor.apply()
+
                 // Clear plaintext prefs to prevent credential recovery from cleartext XML files
                 plainPrefs.edit().clear().apply()
-                Log.d("SecurityUtils", "Successfully migrated plaintext credentials to hardware-encrypted SharedPreferences.")
+                Log.d(TAG, "Successfully migrated plaintext credentials to hardware-encrypted SharedPreferences.")
             } catch (e: Exception) {
-                Log.e("SecurityUtils", "Error during SharedPreferences migration: ${e.message}")
+                Log.e(TAG, "Error during SharedPreferences migration: ${e.message}")
             }
         }
         return securePrefs

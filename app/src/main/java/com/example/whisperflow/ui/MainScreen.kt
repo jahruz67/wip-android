@@ -191,7 +191,10 @@ fun MainScreen(
                 aiEnhancementModel = selectedAiModel
             )
             withContext(Dispatchers.Main) {
-                showSavedIcon = true
+                // Only show the green checkmark if the API key is actually configured;
+                // otherwise show a brief blue "saved" state so the user knows settings
+                // were persisted but still needs to enter an API key.
+                showSavedIcon = apiKey.isNotEmpty()
             }
         }
     }
@@ -1037,17 +1040,39 @@ fun MainScreen(
                             )
                         }
                         
-                        if (historyItems.isNotEmpty()) {
+                    if (historyItems.isNotEmpty()) {
+                            var showClearConfirm by remember { mutableStateOf(false) }
                             TextButton(
-                                onClick = {
-                                    scope.launch(Dispatchers.IO) {
-                                        SecurityUtils.remove(context, "transcription_history")
-                                    }
-                                    historyItems = emptyList()
-                                },
+                                onClick = { showClearConfirm = true },
                                 colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE5484D))
                             ) {
                                 Text("Clear All", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
+                            if (showClearConfirm) {
+                                AlertDialog(
+                                    onDismissRequest = { showClearConfirm = false },
+                                    title = { Text("Clear All History?", color = Color(0xFFE8EAED)) },
+                                    text = { Text("This will permanently delete all transcription history.", color = Color(0xFF8B8F9A)) },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            scope.launch(Dispatchers.IO) {
+                                                SecurityUtils.remove(context, "transcription_history")
+                                            }
+                                            historyItems = emptyList()
+                                            showClearConfirm = false
+                                        }) {
+                                            Text("Clear", color = Color(0xFFE5484D), fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showClearConfirm = false }) {
+                                            Text("Cancel", color = Color(0xFF8B8F9A))
+                                        }
+                                    },
+                                    containerColor = Color(0xFF1A1C23),
+                                    titleContentColor = Color(0xFFE8EAED),
+                                    textContentColor = Color(0xFF8B8F9A)
+                                )
                             }
                         }
                     }
@@ -1092,7 +1117,7 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    items(historyItems, key = { it }) { historyEntry ->
+                    items(historyItems, key = { index, entry -> "$index:${entry.hashCode()}" }) { historyEntry ->
                         // Parse the history entry (format: "timestamp:text")
                         val parts = historyEntry.split(":", limit = 2)
                         val timestamp = parts.getOrNull(0)?.toLongOrNull() ?: 0L

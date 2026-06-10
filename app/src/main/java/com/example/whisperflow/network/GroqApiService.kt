@@ -107,17 +107,14 @@ interface GroqApiService {
                     var readTimeout = chain.readTimeoutMillis()
                     var writeTimeout = chain.writeTimeoutMillis()
 
-                    val connectHeader = request.header("X-Connect-Timeout")
                     val readHeader = request.header("X-Read-Timeout")
                     val writeHeader = request.header("X-Write-Timeout")
 
                     val newRequest = request.newBuilder()
-                        .removeHeader("X-Connect-Timeout")
                         .removeHeader("X-Read-Timeout")
                         .removeHeader("X-Write-Timeout")
                         .build()
 
-                    connectHeader?.toIntOrNull()?.let { connectTimeout = it }
                     readHeader?.toIntOrNull()?.let { readTimeout = it }
                     writeHeader?.toIntOrNull()?.let { writeTimeout = it }
 
