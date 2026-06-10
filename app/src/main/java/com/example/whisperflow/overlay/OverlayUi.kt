@@ -220,8 +220,7 @@ fun OverlayUi(
             }
         }
 
-        // Ring shape matches the capsule
-        val ringShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape
+        // Ring shape matches the capsule (not needed as we use capsuleShape/cornerRadius directly)
 
         // 1. Reactive Aura (drawn in a single layout pass to prevent overdraw and recompositions)
         if (state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP) {

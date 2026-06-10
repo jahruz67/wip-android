@@ -1118,7 +1118,7 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    itemsIndexed(historyItems, key = { index, entry -> "$index:${entry.hashCode()}" }) { index, historyEntry ->
+                    itemsIndexed(historyItems, key = { index, entry -> "$index:${entry.hashCode()}" }) { _, historyEntry ->
                         // Parse the history entry (format: "timestamp:text")
                         val parts = historyEntry.split(":", limit = 2)
                         val timestamp = parts.getOrNull(0)?.toLongOrNull() ?: 0L

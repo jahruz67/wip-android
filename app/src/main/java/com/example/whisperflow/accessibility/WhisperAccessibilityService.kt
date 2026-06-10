@@ -65,11 +65,9 @@ class WhisperAccessibilityService : AccessibilityService() {
                     recycleCurrentEditableNode()
                     @Suppress("DEPRECATION")
                     currentEditableNode = AccessibilityNodeInfo.obtain(node)
-                    node.recycle()
                     isManuallyDismissed = false // Reset manual dismiss on new focus
                     checkOverlayState()
                 } else {
-                    node?.recycle()
                     recycleCurrentEditableNode()
                     handler.removeCallbacks(checkOverlayRunnable)
                     overlayManager.hideOverlay()
@@ -169,7 +167,6 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     private fun recycleCurrentEditableNode() {
-        currentEditableNode?.recycle()
         currentEditableNode = null
     }
 }
