@@ -1117,13 +1117,13 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    items(historyItems, key = { index, entry -> "$index:${entry.hashCode()}" }) { historyEntry ->
+                    itemsIndexed(historyItems, key = { index, entry -> "$index:${entry.hashCode()}" }) { index, historyEntry ->
                         // Parse the history entry (format: "timestamp:text")
                         val parts = historyEntry.split(":", limit = 2)
                         val timestamp = parts.getOrNull(0)?.toLongOrNull() ?: 0L
                         val rawText = parts.getOrNull(1) ?: historyEntry
                         val text = try {
-                            java.net.URLDecoder.decode(rawText, "UTF-8")
+                            java.net.URLDecoder.decode(rawText, Charsets.UTF_8.name())
                         } catch (e: Exception) {
                             rawText
                         }
