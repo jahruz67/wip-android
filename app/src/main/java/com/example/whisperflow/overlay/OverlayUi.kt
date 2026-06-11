@@ -38,8 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -105,13 +103,13 @@ fun OverlayUi(
 
     // Smooth capsule size transition
     val isExpanded = state == OverlayState.RECORDING_TAP
-    val needsVisualRoom = state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP
+    val needsVisualRoom = showLanguagePopup || state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP
     val outerHorizontalPadding = if (needsVisualRoom) 48.dp else 8.dp
-    val outerTopPadding = if (needsVisualRoom) 48.dp else 8.dp
+    val outerTopPadding = if (showLanguagePopup) 140.dp else if (needsVisualRoom) 48.dp else 8.dp
     val outerBottomPadding = if (needsVisualRoom) 48.dp else 8.dp
     val density = LocalDensity.current
 
-    LaunchedEffect(needsVisualRoom, density) {
+    LaunchedEffect(needsVisualRoom, showLanguagePopup, density) {
         with(density) {
             onChromeInsetsChange(
                 outerHorizontalPadding.roundToPx(),
@@ -164,59 +162,58 @@ fun OverlayUi(
             },
         contentAlignment = Alignment.Center
     ) {
-        if (showLanguagePopup) {
-            Popup(
-                onDismissRequest = { showLanguagePopup = false },
-                properties = PopupProperties(focusable = true),
-                alignment = Alignment.Center
+        AnimatedVisibility(
+            visible = showLanguagePopup,
+            enter = fadeIn() + scaleIn(initialScale = 0.8f),
+            exit = fadeOut() + scaleOut(targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            val context = LocalContext.current
+            val targetLanguage = remember { mutableStateOf(initialTargetLanguage) }
+
+            Box(
+                modifier = Modifier
+                    .offset(y = (-100).dp)
+                    .width(140.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1E2129).copy(alpha = 0.95f))
+                    .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
-                val context = LocalContext.current
-                val targetLanguage = remember { mutableStateOf(initialTargetLanguage) }
-
-                Box(
-                    modifier = Modifier
-                        .offset(y = (-100).dp)
-                        .width(140.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1E2129).copy(alpha = 0.95f))
-                        .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {}
-                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
-
-                        options.forEach { (key, display) ->
-                            val isSelected = targetLanguage.value.equals(key, ignoreCase = true)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Color(0xFF5B8DEF) else Color.Transparent)
-                                    .clickable {
-                                        targetLanguage.value = key
-                                        scope.launch(Dispatchers.IO) {
-                                            SecurityUtils.putString(context, "target_language", key)
-                                        }
-                                        showLanguagePopup = false
-                                        val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
-                                        ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
+                    val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
+                    
+                    options.forEach { (key, display) ->
+                        val isSelected = targetLanguage.value.equals(key, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFF5B8DEF) else Color.Transparent)
+                                .clickable {
+                                    targetLanguage.value = key
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.putString(context, "target_language", key)
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                            ) {
-                                Text(
-                                    text = display,
-                                    color = if (targetLanguage.value.equals(key, ignoreCase = true)) Color.White else Color(0xFF9CA3AF),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.SansSerif
-                                )
-                            }
+                                    showLanguagePopup = false
+                                    val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
+                                    ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = display,
+                                color = if (targetLanguage.value.equals(key, ignoreCase = true)) Color.White else Color(0xFF9CA3AF),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
                         }
                     }
                 }
