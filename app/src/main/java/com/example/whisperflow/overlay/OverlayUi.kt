@@ -1,6 +1,5 @@
 package com.example.whisperflow.overlay
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.*
@@ -8,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.Crossfade
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
@@ -16,7 +14,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import com.example.whisperflow.network.ToastHelper
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import android.widget.Toast
@@ -31,10 +28,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -70,7 +70,6 @@ fun OverlayUi(
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onCancelRecording: () -> Unit,
-    onChromeInsetsChange: (Int, Int) -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float, Float) -> Unit,
     onDragEnd: () -> Unit
@@ -101,22 +100,8 @@ fun OverlayUi(
         var lastRawY = 0f
     }}
 
-    // Smooth capsule size transition
+    // Capsule size transition (for TAP mode checkmark/cancel layout)
     val isExpanded = state == OverlayState.RECORDING_TAP
-    val needsVisualRoom = showLanguagePopup || state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP
-    val outerHorizontalPadding = if (needsVisualRoom) 48.dp else 8.dp
-    val outerTopPadding = if (showLanguagePopup) 140.dp else if (needsVisualRoom) 48.dp else 8.dp
-    val outerBottomPadding = if (needsVisualRoom) 48.dp else 8.dp
-    val density = LocalDensity.current
-
-    LaunchedEffect(needsVisualRoom, showLanguagePopup, density) {
-        with(density) {
-            onChromeInsetsChange(
-                outerHorizontalPadding.roundToPx(),
-                outerTopPadding.roundToPx()
-            )
-        }
-    }
 
     val targetWidth = if (isExpanded) 130.dp else 56.dp
     val targetHeight = 56.dp
@@ -144,14 +129,37 @@ fun OverlayUi(
         label = "amplitude"
     )
 
+    // Capsule visual styling
+    val capsuleShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape
+    val backgroundBrush = when (state) {
+        OverlayState.RECORDING_HOLD -> Brush.linearGradient(
+            colors = listOf(Color(0xFFE5484D), Color(0xFF8C1D18))
+        )
+        OverlayState.RECORDING_TAP -> Brush.linearGradient(
+            colors = listOf(Color(0xFF1E2129), Color(0xFF15171E))
+        )
+        OverlayState.TRANSCRIBING -> Brush.linearGradient(
+            colors = listOf(Color(0xFF1A1E2E), Color(0xFF111318))
+        )
+        else -> Brush.linearGradient(
+            colors = listOf(Color(0xFF5B8DEF), Color(0xFF3D6BC7))
+        )
+    }
+
+    val borderGradient = if (state == OverlayState.RECORDING_TAP) {
+        Brush.linearGradient(colors = listOf(Color(0xFF5B8DEF).copy(alpha = 0.4f), Color(0xFF5B8DEF).copy(alpha = 0.15f)))
+    } else {
+        Brush.linearGradient(colors = listOf(Color.White.copy(alpha = 0.3f), Color.White.copy(alpha = 0.05f)))
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // ROOT LAYOUT
+    // A fixed-size container that never changes size, preventing
+    // touch collision bounds from shifting during state transitions.
+    // ─────────────────────────────────────────────────────────
     Box(
         modifier = Modifier
-            .padding(
-                start = outerHorizontalPadding,
-                end = outerHorizontalPadding,
-                top = outerTopPadding,
-                bottom = outerBottomPadding
-            )
+            .size(160.dp, 220.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -162,72 +170,21 @@ fun OverlayUi(
             },
         contentAlignment = Alignment.Center
     ) {
-        AnimatedVisibility(
-            visible = showLanguagePopup,
-            enter = fadeIn() + scaleIn(initialScale = 0.8f),
-            exit = fadeOut() + scaleOut(targetScale = 0.8f),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            val context = LocalContext.current
-            val targetLanguage = remember { mutableStateOf(initialTargetLanguage) }
-
-            Box(
-                modifier = Modifier
-                    .offset(y = (-100).dp)
-                    .width(140.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1E2129).copy(alpha = 0.95f))
-                    .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {}
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
-                    
-                    options.forEach { (key, display) ->
-                        val isSelected = targetLanguage.value.equals(key, ignoreCase = true)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) Color(0xFF5B8DEF) else Color.Transparent)
-                                .clickable {
-                                    targetLanguage.value = key
-                                    scope.launch(Dispatchers.IO) {
-                                        SecurityUtils.putString(context, "target_language", key)
-                                    }
-                                    showLanguagePopup = false
-                                    val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
-                                    ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = display,
-                                color = if (targetLanguage.value.equals(key, ignoreCase = true)) Color.White else Color(0xFF9CA3AF),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                        }
-                    }
-                }
-            }
+        // ── Language Popup via Material3 AlertDialog ──────────
+        // Rendered as a modal dialog layer, completely independent
+        // of the button layout — eliminates all popup jitter.
+        if (showLanguagePopup) {
+            LanguagePopupDialog(
+                initialTargetLanguage = initialTargetLanguage,
+                onDismiss = { showLanguagePopup = false }
+            )
         }
 
-        // Ring shape matches the capsule (not needed as we use capsuleShape/cornerRadius directly)
-
-        // 1. Reactive Aura (drawn in a single layout pass to prevent overdraw and recompositions)
+        // ── Aura Rings (visual only, behind the capsule) ─────
         if (state == OverlayState.RECORDING_HOLD || state == OverlayState.RECORDING_TAP) {
             Box(
                 modifier = Modifier
-                    .width(animatedWidth)
-                    .height(animatedHeight)
+                    .size(56.dp)
                     .drawBehind {
                         val cornerRadius = if (isExpanded) 28.dp.toPx() else size.height / 2f
                         val colorBlue = Color(0xFF5B8DEF)
@@ -306,46 +263,16 @@ fun OverlayUi(
             )
         }
 
-        // 2. Main High-Tech Glassmorphic Control Capsule
-        val capsuleShape = if (isExpanded) RoundedCornerShape(28.dp) else CircleShape
-        val backgroundBrush = when (state) {
-            OverlayState.RECORDING_HOLD -> Brush.linearGradient(
-                colors = listOf(Color(0xFFE5484D), Color(0xFF8C1D18))
-            )
-            OverlayState.RECORDING_TAP -> Brush.linearGradient(
-                colors = listOf(Color(0xFF1E2129), Color(0xFF15171E))
-            )
-            OverlayState.TRANSCRIBING -> Brush.linearGradient(
-                colors = listOf(Color(0xFF1A1E2E), Color(0xFF111318))
-            )
-            else -> Brush.linearGradient(
-                colors = listOf(Color(0xFF5B8DEF), Color(0xFF3D6BC7))
-            )
-        }
-
-        val borderGradient = if (state == OverlayState.RECORDING_TAP) {
-            Brush.linearGradient(colors = listOf(Color(0xFF5B8DEF).copy(alpha = 0.4f), Color(0xFF5B8DEF).copy(alpha = 0.15f)))
-        } else {
-            Brush.linearGradient(colors = listOf(Color.White.copy(alpha = 0.3f), Color.White.copy(alpha = 0.05f)))
-        }
-
+        // ── Fixed Gesture Target ─────────────────────────────
+        // 72dp static box that ALWAYS stays in the same position.
+        // This prevents touch collision bounds from shifting under
+        // the user's finger during state transitions, eliminating
+        // the press-cancel-oscillation loop that caused jittering.
+        // ──────────────────────────────────────────────────────
         Box(
             modifier = Modifier
-                .width(animatedWidth)
-                .height(animatedHeight)
-                .graphicsLayer {
-                    scaleX = containerScale
-                    scaleY = containerScale
-                }
-                .shadow(
-                    elevation = if (state != OverlayState.IDLE) 8.dp else 2.dp,
-                    shape = capsuleShape,
-                    spotColor = if (state == OverlayState.RECORDING_HOLD) Color(0xFFE5484D) else Color(0xFF5B8DEF),
-                    ambientColor = Color.Black
-                )
-                .clip(capsuleShape)
-                .background(backgroundBrush)
-                .border(1.5.dp, borderGradient, capsuleShape)
+                .size(72.dp)
+                .align(Alignment.Center)
                 .pointerInteropFilter { motionEvent ->
                     // Let TAP mode buttons and spinner handle their own touches
                     if (state == OverlayState.RECORDING_TAP || state == OverlayState.TRANSCRIBING) {
@@ -451,6 +378,27 @@ fun OverlayUi(
                         else -> false
                     }
                 }
+        )
+
+        // ── Visual Capsule (no touch handling) ───────────────
+        Box(
+            modifier = Modifier
+                .width(animatedWidth)
+                .height(animatedHeight)
+                .align(Alignment.Center)
+                .graphicsLayer {
+                    scaleX = containerScale
+                    scaleY = containerScale
+                }
+                .shadow(
+                    elevation = if (state != OverlayState.IDLE) 8.dp else 2.dp,
+                    shape = capsuleShape,
+                    spotColor = if (state == OverlayState.RECORDING_HOLD) Color(0xFFE5484D) else Color(0xFF5B8DEF),
+                    ambientColor = Color.Black
+                )
+                .clip(capsuleShape)
+                .background(backgroundBrush)
+                .border(1.5.dp, borderGradient, capsuleShape)
         ) {
             Crossfade(
                 targetState = state,
@@ -519,7 +467,7 @@ fun OverlayUi(
                             }
                         }
                         else -> {
-                            // Visual mic icon only — touch handled by parent Box
+                            // Visual mic icon only — touch handled by fixed gesture target
                             Icon(
                                 imageVector = Icons.Default.Mic,
                                 contentDescription = "Mic",
@@ -534,4 +482,83 @@ fun OverlayUi(
             }
         }
     }
+}
+
+@Composable
+private fun LanguagePopupDialog(
+    initialTargetLanguage: String,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var targetLanguage by remember { mutableStateOf(initialTargetLanguage) }
+    val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1E2129).copy(alpha = 0.98f),
+        titleContentColor = Color(0xFFE8EAED),
+        textContentColor = Color(0xFF9CA3AF),
+        title = {
+            Text(
+                text = "Translation Mode",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.SansSerif
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { (key, display) ->
+                    val isSelected = targetLanguage.equals(key, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSelected) Color(0xFF5B8DEF) else Color(0xFF15171E))
+                            .clickable {
+                                targetLanguage = key
+                                scope.launch(Dispatchers.IO) {
+                                    SecurityUtils.putString(context, "target_language", key)
+                                }
+                                val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
+                                ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
+                                onDismiss()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                    ) {
+                        Column {
+                            Text(
+                                text = display,
+                                color = if (isSelected) Color.White else Color(0xFFE8EAED),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            val subtitle = when (key) {
+                                "none" -> "Whisper detects spoken language → keeps as-is."
+                                "english" -> "Detects Spanish spoken → translates to English. Detects English → keeps as-is."
+                                else -> "Detects English spoken → translates to Spanish. Detects Spanish → keeps as-is."
+                            }
+                            Text(
+                                text = subtitle,
+                                color = if (isSelected) Color.White.copy(alpha = 0.7f) else Color(0xFF6B7076),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF5B8DEF))
+            ) {
+                Text("Cancel", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    )
 }

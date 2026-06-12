@@ -130,9 +130,6 @@ class OverlayManager(
     private var pendingX = 50
     private var pendingY = 500
     private var isFrameCallbackScheduled = false
-    private var hasChromeInsets = false
-    private var currentChromeInsetX = 0
-    private var currentChromeInsetY = 0
 
     private val frameCallback = object : android.view.Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -493,40 +490,9 @@ class OverlayManager(
         }
     }
 
-    private fun updateChromeInsets(insetX: Int, insetY: Int) {
-        if (!hasChromeInsets) {
-            currentChromeInsetX = insetX
-            currentChromeInsetY = insetY
-            hasChromeInsets = true
-            return
-        }
-
-        val deltaX = insetX - currentChromeInsetX
-        val deltaY = insetY - currentChromeInsetY
-        if (deltaX == 0 && deltaY == 0) return
-
-        currentChromeInsetX = insetX
-        currentChromeInsetY = insetY
-        floatX -= deltaX
-        floatY -= deltaY
-        pendingX = floatX.toInt()
-        pendingY = floatY.toInt()
-        params.x = pendingX
-        params.y = pendingY
-
-        composeView?.let { view ->
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update chrome insets", e)
-            }
-        }
-    }
-
     fun showOverlay(interactionMode: String) {
         if (isShowing) return
         overlayState.value = OverlayState.IDLE
-        hasChromeInsets = false
 
         // Best-effort cleanup of any orphaned audio files from previous sessions
         cleanupStaleAudioFiles()
@@ -556,9 +522,6 @@ class OverlayManager(
                     },
                     onStopRecording = { stopRecordingAndTranscribe() },
                     onCancelRecording = { cancelRecording() },
-                    onChromeInsetsChange = { insetX, insetY ->
-                        updateChromeInsets(insetX, insetY)
-                    },
                     onDragStart = {
                         dismissJob?.cancel()
                         dismissJob = scope.launch {
