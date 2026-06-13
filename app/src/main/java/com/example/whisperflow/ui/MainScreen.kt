@@ -145,17 +145,23 @@ fun MainScreen(
         historyItems = settings.historyItems
     }
 
-    var isServiceAccessible by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    var isServiceAccessible by remember { mutableStateOf(false) }
+
+    // Check accessibility status off the main thread to avoid IPC on UI thread
+    LaunchedEffect(context) {
+        isServiceAccessible = withContext(Dispatchers.IO) { isAccessibilityServiceEnabled(context) }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                isServiceAccessible = isAccessibilityServiceEnabled(context)
-                // Reload history on resume to sync changes from dictation service
+                // Check accessibility + reload history on resume (both off main thread)
                 scope.launch(Dispatchers.IO) {
+                    val accessible = isAccessibilityServiceEnabled(context)
                     val updatedHistory = loadHistory(context)
                     withContext(Dispatchers.Main) {
+                        isServiceAccessible = accessible
                         historyItems = updatedHistory
                     }
                 }
@@ -1009,6 +1015,7 @@ fun MainScreen(
                             }
                             
                             PermissionPanel(
+                                hasAccessibilityPermission = isServiceAccessible,
                                 onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                                 onOpenOverlaySettings = onOpenOverlaySettings
                             )
@@ -1310,6 +1317,7 @@ fun InteractionModeCard(
 
 @Composable
 fun PermissionPanel(
+    hasAccessibilityPermission: Boolean,
     onOpenAccessibilitySettings: () -> Unit,
     onOpenOverlaySettings: () -> Unit
 ) {
@@ -1320,14 +1328,13 @@ fun PermissionPanel(
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
-    var hasAccessibilityPermission by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasMicPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                 hasOverlayPermission = Settings.canDrawOverlays(context)
-                hasAccessibilityPermission = isAccessibilityServiceEnabled(context)
+                // Accessibility permission is tracked by MainScreen on IO thread
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

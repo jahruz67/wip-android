@@ -84,8 +84,10 @@ class OverlayManager(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val overlayState = mutableStateOf(OverlayState.IDLE)
     private val voiceAmplitude = mutableFloatStateOf(0f)
+    private val interactionModeState = mutableStateOf("HOLD_TO_TALK")
     private var amplitudeJob: Job? = null
     private var startRecordingJob: Job? = null
+    private var isViewAttached = false
 
     // Bottom-center dismiss target state
     private var dismissComposeView: ComposeView? = null
@@ -222,8 +224,9 @@ class OverlayManager(
     private fun startRecording() {
         startRecordingJob?.cancel()
         startRecordingJob = scope.launch {
+            // SecurityUtils reads are from an in-memory cache; only the recorder needs IO
+            val audioSource = SecurityUtils.getInt(context, "audio_source", MediaRecorder.AudioSource.MIC)
             val recordingFile = withContext(Dispatchers.IO) {
-                val audioSource = SecurityUtils.getInt(context, "audio_source", MediaRecorder.AudioSource.MIC)
                 voiceRecorder.startRecording(audioSource)
             }
             if (recordingFile == null) {
@@ -253,14 +256,13 @@ class OverlayManager(
                 return@launch
             }
 
-            val settings = withContext(Dispatchers.IO) {
-                TranscriptionSettings(
-                    apiKey = SecurityUtils.getString(context, "api_key", ""),
-                    modelName = SecurityUtils.getString(context, "whisper_model", "whisper-large-v3"),
-                    aiEnhancementModel = SecurityUtils.getString(context, "ai_enhancement_model", "none"),
-                    targetLanguage = SecurityUtils.getString(context, "target_language", "none")
-                )
-            }
+            // SecurityUtils reads are from an in-memory cache; no need for IO dispatcher
+            val settings = TranscriptionSettings(
+                apiKey = SecurityUtils.getString(context, "api_key", ""),
+                modelName = SecurityUtils.getString(context, "whisper_model", "whisper-large-v3"),
+                aiEnhancementModel = SecurityUtils.getString(context, "ai_enhancement_model", "none"),
+                targetLanguage = SecurityUtils.getString(context, "target_language", "none")
+            )
 
             if (settings.apiKey.isEmpty()) {
                 ToastHelper.showToast(context, "Groq API Key is missing! Please configure it in Settings.", Toast.LENGTH_LONG)
@@ -409,26 +411,65 @@ class OverlayManager(
             val existing = SecurityUtils.getString(context, "transcription_history", "")
             val encodedText = java.net.URLEncoder.encode(text, "UTF-8")
             val newEntry = "${System.currentTimeMillis()}:$encodedText"
-            val updated = if (existing.isEmpty()) newEntry else "$existing|$newEntry"
 
-            // Keep only last 100 entries
-            val entries = updated.split("|")
-            val trimmed = if (entries.size > 100) entries.takeLast(100).joinToString("|") else updated
-
-            // Enforce a hard character limit to prevent SharedPreferences size issues
-            // (EncryptedSharedPreferences has overhead; 50KB of raw text is a safe ceiling)
-            val finalHistory = if (trimmed.length > MAX_HISTORY_CHARS) {
-                val idx = trimmed.length - MAX_HISTORY_CHARS
-                val pipeIdx = trimmed.indexOf('|', idx)
-                if (pipeIdx >= 0) trimmed.substring(pipeIdx + 1) else trimmed.takeLast(MAX_HISTORY_CHARS)
-            } else {
-                trimmed
+            // Use StringBuilder to avoid O(n²) string concatenation
+            val sb = StringBuilder(existing.length + newEntry.length + 1)
+            if (existing.isNotEmpty()) {
+                sb.append(existing).append('|')
             }
+            sb.append(newEntry)
+
+            // Keep only last 100 entries and enforce a hard character limit
+            // to prevent SharedPreferences size issues (EncryptedSharedPreferences
+            // has overhead; 50KB of raw text is a safe ceiling)
+            val finalHistory = trimHistory(sb.toString())
 
             SecurityUtils.putString(context, "transcription_history", finalHistory)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save history entry", e)
         }
+    }
+
+    private fun trimHistory(raw: String): String {
+        // Fast path: if under both limits, return as-is
+        if (raw.length <= MAX_HISTORY_CHARS) {
+            val pipeCount = raw.count { it == '|' }
+            if (pipeCount < 100) return raw
+        }
+
+        // Count pipes to determine if we need to trim entries
+        var pipeCount = 0
+        for (c in raw) { if (c == '|') pipeCount++ }
+
+        var result = raw
+
+        // Trim to last 100 entries if needed
+        if (pipeCount >= 100) {
+            // Walk backwards to find the (pipeCount - 99)th pipe
+            var pipesToSkip = pipeCount - 99
+            var cutIndex = 0
+            for (i in raw.indices) {
+                if (raw[i] == '|') {
+                    pipesToSkip--
+                    if (pipesToSkip == 0) {
+                        cutIndex = i + 1
+                        break
+                    }
+                }
+            }
+            if (cutIndex > 0) {
+                result = result.substring(cutIndex)
+            }
+        }
+
+        // Enforce hard character limit
+        if (result.length > MAX_HISTORY_CHARS) {
+            val idx = result.length - MAX_HISTORY_CHARS
+            val pipeIdx = result.indexOf('|', idx)
+            result = if (pipeIdx >= 0) result.substring(pipeIdx + 1) else result.takeLast(MAX_HISTORY_CHARS)
+        }
+
+        return result
     }
 
     private fun cancelRecording() {
@@ -475,27 +516,38 @@ class OverlayManager(
         }
     }
 
-    private fun cleanupStaleAudioFiles() {
-        try {
-            context.cacheDir.listFiles()?.forEach { file ->
-                if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
-                    // Delete files older than 1 hour (orphaned from crashed/killed sessions)
-                    if (System.currentTimeMillis() - file.lastModified() > 3_600_000) {
-                        file.delete()
+    /**
+     * Cleans up orphaned audio files on a background thread to avoid blocking
+     * the main thread with disk I/O during overlay presentation.
+     * Also triggers the one-time legacy cleanup (formerly in VoiceRecorder.init).
+     */
+    private fun cleanupStaleAudioFilesAsync() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                // One-time cleanup of legacy audio files from old sessions
+                VoiceRecorder.cleanUpLegacyFiles(context)
+
+                context.cacheDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
+                        // Delete files older than 1 hour (orphaned from crashed/killed sessions)
+                        if (System.currentTimeMillis() - file.lastModified() > 3_600_000) {
+                            file.delete()
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to clean stale audio files", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clean stale audio files", e)
         }
     }
 
-    fun showOverlay(interactionMode: String) {
-        if (isShowing) return
-        overlayState.value = OverlayState.IDLE
-
-        // Best-effort cleanup of any orphaned audio files from previous sessions
-        cleanupStaleAudioFiles()
+    /**
+     * Lazily creates (or reuses) the ComposeView and wires up its content.
+     * The composition is created once and kept alive across show/hide cycles,
+     * eliminating the expensive create-compose / dispose-compose churn.
+     */
+    private fun ensureComposeViewCreated() {
+        if (composeView != null) return
 
         val initialTargetLanguage = SecurityUtils.getString(context, "target_language", "none")
 
@@ -508,7 +560,7 @@ class OverlayManager(
             setContent {
                 OverlayUi(
                     state = overlayState.value,
-                    interactionMode = interactionMode,
+                    interactionMode = interactionModeState.value,
                     initialTargetLanguage = initialTargetLanguage,
                     voiceAmplitude = voiceAmplitude.floatValue,
                     onStateChange = { newState ->
@@ -589,20 +641,40 @@ class OverlayManager(
                 )
             }
         }
+    }
 
-        try {
-            windowManager.addView(composeView, params)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-            isShowing = true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add overlay view", e)
+    fun showOverlay(interactionMode: String) {
+        if (isShowing) return
+        overlayState.value = OverlayState.IDLE
+        interactionModeState.value = interactionMode
+
+        // Best-effort cleanup of any orphaned audio files from previous sessions (async)
+        cleanupStaleAudioFilesAsync()
+
+        // Reuse existing ComposeView + composition if available
+        ensureComposeViewCreated()
+
+        if (isViewAttached) {
+            // View was previously attached — just update layout params
             try {
-                composeView?.disposeComposition()
-            } catch (ex: Exception) { /* already failing */ }
-            composeView = null
-            isShowing = false
+                windowManager.updateViewLayout(composeView, params)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update overlay layout", e)
+            }
+        } else {
+            try {
+                windowManager.addView(composeView, params)
+                isViewAttached = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to add overlay view", e)
+                isViewAttached = false
+                return
+            }
         }
+
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        isShowing = true
     }
 
     fun hideOverlay() {
@@ -626,22 +698,36 @@ class OverlayManager(
         if (overlayState.value == OverlayState.RECORDING_HOLD || overlayState.value == OverlayState.RECORDING_TAP) {
             cancelRecording()
         }
+
+        // Remove the view from the window but keep the ComposeView + composition
+        // alive so it can be quickly re-attached on the next showOverlay() call.
         composeView?.let {
-            try {
-                it.disposeComposition()
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove overlay view", e)
+            if (isViewAttached) {
+                try {
+                    windowManager.removeView(it)
+                    isViewAttached = false
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to remove overlay view", e)
+                    isViewAttached = false
+                }
             }
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
-            composeView = null
         }
+
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         isShowing = false
     }
 
     fun destroy() {
         hideOverlay()
+        // Now actually dispose the composition and release the view
+        composeView?.let {
+            try {
+                it.disposeComposition()
+            } catch (e: Exception) { /* already failing */ }
+        }
+        composeView = null
+        isViewAttached = false
         scope.cancel()
         store.clear()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)

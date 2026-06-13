@@ -17,7 +17,7 @@ class VoiceRecorder(private val context: Context) {
     private var isRecording = false
 
     companion object {
-        private val TAG = "VoiceRecorder"
+        private const val TAG = "VoiceRecorder"
         private val cleanupStarted = AtomicBoolean(false)
 
         /**
@@ -50,6 +50,25 @@ class VoiceRecorder(private val context: Context) {
             }
 
             return sources
+        }
+
+        /**
+         * One-time cleanup of legacy audio files. Should be called from a
+         * background thread (e.g. Dispatchers.IO) to avoid blocking the UI.
+         */
+        fun cleanUpLegacyFiles(context: Context) {
+            if (cleanupStarted.compareAndSet(false, true)) {
+                try {
+                    val appCtx = context.applicationContext
+                    appCtx.cacheDir.listFiles()?.forEach { file ->
+                        if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
+                            file.delete()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to clean legacy audio files: ${e.message}")
+                }
+            }
         }
 
         private fun getBestAudioSourceForDevice(device: AudioDeviceInfo): Int {
@@ -94,24 +113,6 @@ class VoiceRecorder(private val context: Context) {
             }
 
             return if (productName.isNotEmpty()) "$typeName ($productName)" else typeName
-        }
-    }
-
-    init {
-        // Clean up legacy audio files synchronously on first instantiation.
-        // This is a lightweight disk operation (directory listing + delete) that
-        // completes in < 1ms and avoids leaking an unstructured CoroutineScope.
-        if (cleanupStarted.compareAndSet(false, true)) {
-            try {
-                val appCtx = context.applicationContext
-                appCtx.cacheDir.listFiles()?.forEach { file ->
-                    if (file.name.startsWith("whisper_dictation_") && file.name.endsWith(".m4a")) {
-                        file.delete()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to clean legacy audio files: ${e.message}")
-            }
         }
     }
 
