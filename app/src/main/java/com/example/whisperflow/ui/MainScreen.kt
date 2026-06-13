@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,6 +53,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+
+// ── Extracted color constants to avoid repeated allocation during recomposition ──
+private object C {
+    val Bg = Color(0xFF111318)
+    val CardBg = Color(0xFF1A1C23)
+    val InputBg = Color(0xFF15171E)
+    val Border = Color(0xFF2E313B)
+    val Accent = Color(0xFF5B8DEF)
+    val Green = Color(0xFF10B981)
+    val Red = Color(0xFFE5484D)
+    val GreenBadge = Color(0xFF46A758)
+    val TextPrimary = Color(0xFFE8EAED)
+    val TextSecondary = Color(0xFF8B8F9A)
+    val TextMuted = Color(0xFF6B7076)
+    val TextDim = Color(0xFF4B5563)
+    val TextBody = Color(0xFFCDD0D5)
+    val DeleteIcon = Color(0xFFE5484D).copy(alpha = 0.7f)
+    val ChipBg = Color(0xFF2E313B)
+    val StatusBg = Color(0xFF1A1C23)
+    val GreenTint = Color(0x1A10B981)
+    val RedTint = Color(0x1AE5484D)
+    val GreenTrack = Color(0x4D10B981)
+    val GrayTrack = Color(0x4D6B7076)
+    val GreenGrantedTint = Color(0x1A46A758)
+    val GrantBtnBg = Color(0xFF5B8DEF).copy(alpha = 0.15f)
+}
+
+// ── Reusable shapes (allocated once) ──
+private val CardShape = RoundedCornerShape(16.dp)
+private val InputShape = RoundedCornerShape(12.dp)
+private val DropdownShape = RoundedCornerShape(14.dp)
+private val PillShape = RoundedCornerShape(20.dp)
+private val InfoBoxShape = RoundedCornerShape(10.dp)
 
 private data class MainScreenSettings(
     val apiKey: String,
@@ -171,7 +205,6 @@ fun MainScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Helper to get display name for audio source
     fun getAudioSourceDisplayName(source: Int): String {
         return audioSourceList.find { it.first == source }?.second ?: "Microphone (Default)"
     }
@@ -186,30 +219,31 @@ fun MainScreen(
         return aiModelOptions.find { it.first == model }?.second ?: "None"
     }
 
-    fun saveAllSettings() {
-        scope.launch(Dispatchers.IO) {
-            SecurityUtils.saveSettings(
-                context = context,
-                apiKey = apiKey,
-                whisperModel = selectedModel,
-                interactionMode = interactionMode,
-                audioSource = selectedAudioSource,
-                targetLanguage = selectedLanguage,
-                aiEnhancementModel = selectedAiModel
-            )
-            withContext(Dispatchers.Main) {
-                // Only show the green checkmark if the API key is actually configured;
-                // otherwise show a brief blue "saved" state so the user knows settings
-                // were persisted but still needs to enter an API key.
-                showSavedIcon = apiKey.isNotEmpty()
+    val saveAllSettings = remember(apiKey, selectedModel, interactionMode, selectedAudioSource, selectedLanguage, selectedAiModel) {
+        {
+            scope.launch(Dispatchers.IO) {
+                SecurityUtils.saveSettings(
+                    context = context,
+                    apiKey = apiKey,
+                    whisperModel = selectedModel,
+                    interactionMode = interactionMode,
+                    audioSource = selectedAudioSource,
+                    targetLanguage = selectedLanguage,
+                    aiEnhancementModel = selectedAiModel
+                )
+                withContext(Dispatchers.Main) {
+                    showSavedIcon = apiKey.isNotEmpty()
+                }
             }
         }
     }
 
+    val lazyListState = rememberLazyListState()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF111318))
+            .background(C.Bg)
     ) {
 
         Scaffold(
@@ -233,60 +267,62 @@ fun MainScreen(
                                     fontSize = 22.sp,
                                     fontFamily = FontFamily.SansSerif,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFE8EAED)
+                                    color = C.TextPrimary
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xFF2E313B))
+                                        .clip(InputShape)
+                                        .background(C.ChipBg)
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = "Groq",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color(0xFF8B8F9A)
+                                        color = C.TextSecondary
                                     )
                                 }
                             }
                             Text(
                                 text = "Voice Dictation",
                                 fontSize = 13.sp,
-                                color = Color(0xFF6B7076),
+                                color = C.TextMuted,
                                 fontWeight = FontWeight.Normal
                             )
                         }
-                        
+
                         // Status LED Indicator
+                        val isActive = isServiceAccessible && isServiceEnabled
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(30.dp))
-                                .background(Color(0xFF1A1C23))
+                                .background(C.StatusBg)
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(if (isServiceAccessible && isServiceEnabled) Color(0xFF10B981) else Color(0xFFEF4444))
+                                    .background(if (isActive) C.Green else Color(0xFFEF4444))
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isServiceAccessible && isServiceEnabled) "Active" else "Inactive",
+                                text = if (isActive) "Active" else "Inactive",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isServiceAccessible && isServiceEnabled) Color(0xFF10B981) else Color(0xFFEF4444)
+                                color = if (isActive) C.Green else Color(0xFFEF4444)
                             )
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Color(0xFF2E313B), thickness = 1.dp)
+                    HorizontalDivider(color = C.Border, thickness = 1.dp)
                 }
             }
         ) { paddingValues ->
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
@@ -295,10 +331,9 @@ fun MainScreen(
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 // Service Toggle Card
-                item {
-                    PremiumGlassCard(
-                        borderGlow = if (isServiceEnabled) Color(0xFF10B981) else Color(0xFFE5484D)
-                    ) {
+                item(key = "service_toggle") {
+                    val serviceBorderGlow = if (isServiceEnabled) C.Green else C.Red
+                    PremiumGlassCard(borderGlow = serviceBorderGlow) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -308,16 +343,14 @@ fun MainScreen(
                             Box(
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isServiceEnabled) Color(0x1A10B981) else Color(0x1AE5484D)
-                                    ),
+                                    .clip(InputShape)
+                                    .background(if (isServiceEnabled) C.GreenTint else C.RedTint),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = if (isServiceEnabled) Icons.Default.PlayArrow else Icons.Default.Stop,
                                     contentDescription = null,
-                                    tint = if (isServiceEnabled) Color(0xFF10B981) else Color(0xFFE5484D),
+                                    tint = if (isServiceEnabled) C.Green else C.Red,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -329,12 +362,12 @@ fun MainScreen(
                                     text = "WhisperFlow Service",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
+                                    color = C.TextPrimary
                                 )
                                 Text(
                                     text = if (isServiceEnabled) "Overlay will appear when keyboard is active" else "Service disabled - overlay won't appear",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF6B7076)
+                                    color = C.TextMuted
                                 )
                             }
 
@@ -347,10 +380,10 @@ fun MainScreen(
                                     }
                                 },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color(0xFF10B981),
-                                    checkedTrackColor = Color(0x4D10B981),
-                                    uncheckedThumbColor = Color(0xFF6B7076),
-                                    uncheckedTrackColor = Color(0x4D6B7076)
+                                    checkedThumbColor = C.Green,
+                                    checkedTrackColor = C.GreenTrack,
+                                    uncheckedThumbColor = C.TextMuted,
+                                    uncheckedTrackColor = C.GrayTrack
                                 )
                             )
                         }
@@ -358,10 +391,9 @@ fun MainScreen(
                 }
 
                 // API Configuration Dashboard Card
-                item {
-                    PremiumGlassCard(
-                        borderGlow = if (apiKey.isEmpty()) Color(0x33E5484D) else Color(0xFF2E313B)
-                    ) {
+                item(key = "api_key") {
+                    val apiBorderGlow = if (apiKey.isEmpty()) Color(0x33E5484D) else C.Border
+                    PremiumGlassCard(borderGlow = apiBorderGlow) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -370,7 +402,7 @@ fun MainScreen(
                                 Icon(
                                     imageVector = Icons.Default.Lock,
                                     contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
+                                    tint = C.Accent,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -381,18 +413,18 @@ fun MainScreen(
                                     color = Color.White
                                 )
                             }
-                            
+
                             Row(
-                                verticalAlignment = Alignment.CenterVertically, 
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 OutlinedTextField(
                                     value = apiKey,
-                                    onValueChange = { 
+                                    onValueChange = {
                                         apiKey = it
                                         showSavedIcon = false
                                     },
-                                    placeholder = { Text("gsk_...", color = Color(0xFF4B5563)) },
+                                    placeholder = { Text("gsk_...", color = C.TextDim) },
                                     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                     trailingIcon = {
                                         val image = if (isPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
@@ -402,27 +434,25 @@ fun MainScreen(
                                     },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF5B8DEF),
-                                        unfocusedBorderColor = Color(0xFF2E313B),
-                                        focusedLabelColor = Color(0xFF5B8DEF),
-                                        unfocusedLabelColor = Color(0xFF8B8F9A),
-                                        focusedTextColor = Color(0xFFE8EAED),
-                                        unfocusedTextColor = Color(0xFFE8EAED),
-                                        focusedContainerColor = Color(0xFF15171E),
-                                        unfocusedContainerColor = Color(0xFF15171E)
+                                        focusedBorderColor = C.Accent,
+                                        unfocusedBorderColor = C.Border,
+                                        focusedLabelColor = C.Accent,
+                                        unfocusedLabelColor = C.TextSecondary,
+                                        focusedTextColor = C.TextPrimary,
+                                        unfocusedTextColor = C.TextPrimary,
+                                        focusedContainerColor = C.InputBg,
+                                        unfocusedContainerColor = C.InputBg
                                     ),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = InputShape,
                                     modifier = Modifier.weight(1f)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
-                                
-                                val buttonColor = if (showSavedIcon) Color(0xFF46A758) else Color(0xFF5B8DEF)
+
+                                val buttonColor = if (showSavedIcon) C.GreenBadge else C.Accent
                                 Button(
                                     onClick = { saveAllSettings() },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = buttonColor
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                                    shape = InputShape,
                                     modifier = Modifier.height(56.dp),
                                     contentPadding = PaddingValues(horizontal = 16.dp)
                                 ) {
@@ -441,21 +471,21 @@ fun MainScreen(
                                     }
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(10.dp))
-                            
+
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = if (showSavedIcon) Icons.Default.CheckCircle else Icons.Default.Info,
                                     contentDescription = null,
-                                    tint = if (showSavedIcon) Color(0xFF46A758) else Color(0xFF6B7076),
+                                    tint = if (showSavedIcon) C.GreenBadge else C.TextMuted,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (showSavedIcon) "All settings saved" else "Encrypted on-device storage",
                                     fontSize = 12.sp,
-                                    color = if (showSavedIcon) Color(0xFF46A758) else Color(0xFF6B7076)
+                                    color = if (showSavedIcon) C.GreenBadge else C.TextMuted
                                 )
                             }
                         }
@@ -463,496 +493,278 @@ fun MainScreen(
                 }
 
                 // Audio Source Selection Card
-                item {
-                    PremiumGlassCard {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Audio Source",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
-                                )
-                            }
+                item(key = "audio_source") {
+                    val sourceDisplayName = remember(selectedAudioSource) { getAudioSourceDisplayName(selectedAudioSource) }
+                    Box {
+                        PremiumGlassCard {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                SectionHeader(icon = Icons.Default.Mic, title = "Audio Source")
 
-                            ExposedDropdownMenuBox(
-                                expanded = isSourceDropdownExpanded,
-                                onExpandedChange = { isSourceDropdownExpanded = !isSourceDropdownExpanded }
-                            ) {
-                                OutlinedTextField(
-                                    value = getAudioSourceDisplayName(selectedAudioSource),
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isSourceDropdownExpanded) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF5B8DEF),
-                                        unfocusedBorderColor = Color(0xFF2E313B),
-                                        focusedTextColor = Color(0xFFE8EAED),
-                                        unfocusedTextColor = Color(0xFFE8EAED),
-                                        focusedContainerColor = Color(0xFF15171E),
-                                        unfocusedContainerColor = Color(0xFF15171E)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth()
-                                )
-
-                                ExposedDropdownMenu(
+                                // Lightweight dropdown trigger
+                                DropdownTrigger(
+                                    value = sourceDisplayName,
                                     expanded = isSourceDropdownExpanded,
-                                    onDismissRequest = { isSourceDropdownExpanded = false },
-                                    modifier = Modifier.background(Color(0xFF1A1C23))
-                                ) {
-                                    audioSourceList.forEach { (source, name) ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
-                                                    Text(name, color = Color(0xFFE8EAED), fontWeight = FontWeight.SemiBold)
-                                                    Text(
-                                                        text = when (source) {
-                                                            MediaRecorder.AudioSource.MIC -> "Standard built-in microphone"
-                                                            MediaRecorder.AudioSource.VOICE_RECOGNITION -> "Optimized for speech recognition"
-                                                            MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "Optimized for voice calls"
-                                                            MediaRecorder.AudioSource.UNPROCESSED -> "Raw unprocessed audio"
-                                                            else -> "Detected audio input device"
-                                                        },
-                                                        color = Color(0xFF6B7076),
-                                                        fontSize = 11.sp
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                selectedAudioSource = source
-                                                isSourceDropdownExpanded = false
-                                                scope.launch(Dispatchers.IO) {
-                                                    SecurityUtils.putInt(context, "audio_source", source)
-                                                }
-                                            }
-                                        )
+                                    onClick = { isSourceDropdownExpanded = true }
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                InfoBox(
+                                    label = sourceDisplayName,
+                                    description = when (selectedAudioSource) {
+                                        MediaRecorder.AudioSource.MIC -> "Default microphone. Works well in quiet environments."
+                                        MediaRecorder.AudioSource.VOICE_RECOGNITION -> "Optimized for speech recognition with noise reduction."
+                                        MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "Optimized for two-way voice communication."
+                                        MediaRecorder.AudioSource.CAMCORDER -> "Camera microphone path for noisy environments."
+                                        MediaRecorder.AudioSource.UNPROCESSED -> "Raw audio with no processing applied."
+                                        else -> "Selected audio input device."
                                     }
-                                }
+                                )
                             }
+                        }
 
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF15171E))
-                                    .border(1.dp, Color(0xFF2E313B), RoundedCornerShape(10.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = getAudioSourceDisplayName(selectedAudioSource),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF8B8F9A),
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Text(
-                                        text = when (selectedAudioSource) {
-                                            MediaRecorder.AudioSource.MIC -> "Default microphone. Works well in quiet environments."
-                                            MediaRecorder.AudioSource.VOICE_RECOGNITION -> "Optimized for speech recognition with noise reduction."
-                                            MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "Optimized for two-way voice communication."
-                                            MediaRecorder.AudioSource.CAMCORDER -> "Camera microphone path for noisy environments."
-                                            MediaRecorder.AudioSource.UNPROCESSED -> "Raw audio with no processing applied."
-                                            else -> "Selected audio input device."
-                                        },
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF6B7076),
-                                        lineHeight = 16.sp
-                                    )
-                                }
+                        // Lightweight dropdown menu
+                        DropdownMenu(
+                            expanded = isSourceDropdownExpanded,
+                            onDismissRequest = { isSourceDropdownExpanded = false },
+                            modifier = Modifier.background(C.CardBg)
+                        ) {
+                            audioSourceList.forEach { (source, name) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(name, color = C.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                text = when (source) {
+                                                    MediaRecorder.AudioSource.MIC -> "Standard built-in microphone"
+                                                    MediaRecorder.AudioSource.VOICE_RECOGNITION -> "Optimized for speech recognition"
+                                                    MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "Optimized for voice calls"
+                                                    MediaRecorder.AudioSource.UNPROCESSED -> "Raw unprocessed audio"
+                                                    else -> "Detected audio input device"
+                                                },
+                                                color = C.TextMuted,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedAudioSource = source
+                                        isSourceDropdownExpanded = false
+                                        scope.launch(Dispatchers.IO) {
+                                            SecurityUtils.putInt(context, "audio_source", source)
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
                 }
 
                 // Whisper Model Selection Card
-                item {
-                    PremiumGlassCard {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Whisper Model",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
-                                )
-                            }
+                item(key = "whisper_model") {
+                    val modelDisplayName = remember(selectedModel) {
+                        if (selectedModel == "whisper-large-v3") "Whisper Large V3 (Premium)" else "Whisper Large V3 Turbo (Fast)"
+                    }
+                    Box {
+                        PremiumGlassCard {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                SectionHeader(icon = Icons.Default.Settings, title = "Whisper Model")
 
-                            ExposedDropdownMenuBox(
-                                expanded = isModelDropdownExpanded,
-                                onExpandedChange = { isModelDropdownExpanded = !isModelDropdownExpanded }
-                            ) {
-                                OutlinedTextField(
-                                    value = if (selectedModel == "whisper-large-v3") "Whisper Large V3 (Premium)" else "Whisper Large V3 Turbo (Fast)",
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isModelDropdownExpanded) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF5B8DEF),
-                                        unfocusedBorderColor = Color(0xFF2E313B),
-                                        focusedTextColor = Color(0xFFE8EAED),
-                                        unfocusedTextColor = Color(0xFFE8EAED),
-                                        focusedContainerColor = Color(0xFF15171E),
-                                        unfocusedContainerColor = Color(0xFF15171E)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth()
-                                )
-                                
-                                ExposedDropdownMenu(
+                                DropdownTrigger(
+                                    value = modelDisplayName,
                                     expanded = isModelDropdownExpanded,
-                                    onDismissRequest = { isModelDropdownExpanded = false },
-                                    modifier = Modifier.background(Color(0xFF1A1C23))
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { 
-                                            Column {
-                                                Text("Whisper Large V3", color = Color(0xFFE8EAED), fontWeight = FontWeight.SemiBold)
-                                                Text("Best accuracy, handles accents well", color = Color(0xFF6B7076), fontSize = 11.sp)
-                                            }
-                                        },
-                                        onClick = {
-                                            selectedModel = "whisper-large-v3"
-                                            isModelDropdownExpanded = false
-                                            scope.launch(Dispatchers.IO) {
-                                                SecurityUtils.putString(context, "whisper_model", "whisper-large-v3")
-                                            }
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text("Whisper Large V3 Turbo", color = Color(0xFFE8EAED), fontWeight = FontWeight.SemiBold)
-                                                Text("Faster, lighter on data", color = Color(0xFF6B7076), fontSize = 11.sp)
-                                            }
-                                        },
-                                        onClick = {
-                                            selectedModel = "whisper-large-v3-turbo"
-                                            isModelDropdownExpanded = false
-                                            scope.launch(Dispatchers.IO) {
-                                                SecurityUtils.putString(context, "whisper_model", "whisper-large-v3-turbo")
-                                            }
-                                        }
-                                    )
-                                }
+                                    onClick = { isModelDropdownExpanded = true }
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                InfoBox(
+                                    label = if (selectedModel == "whisper-large-v3") "Accuracy" else "Speed",
+                                    description = if (selectedModel == "whisper-large-v3") {
+                                        "1.5B parameter model. Handles slang, jargon, and strong accents well."
+                                    } else {
+                                        "Up to 8x faster. Lower data usage, good for messaging."
+                                    }
+                                )
                             }
-                            
-                            Spacer(modifier = Modifier.height(14.dp))
-                            
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF15171E))
-                                    .border(1.dp, Color(0xFF2E313B), RoundedCornerShape(10.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = if (selectedModel == "whisper-large-v3") "Accuracy" else "Speed",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF8B8F9A),
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Text(
-                                        text = if (selectedModel == "whisper-large-v3") {
-                                            "1.5B parameter model. Handles slang, jargon, and strong accents well."
-                                        } else {
-                                            "Up to 8x faster. Lower data usage, good for messaging."
-                                        },
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF6B7076),
-                                        lineHeight = 16.sp
-                                    )
+                        }
+
+                        DropdownMenu(
+                            expanded = isModelDropdownExpanded,
+                            onDismissRequest = { isModelDropdownExpanded = false },
+                            modifier = Modifier.background(C.CardBg)
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Whisper Large V3", color = C.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                        Text("Best accuracy, handles accents well", color = C.TextMuted, fontSize = 11.sp)
+                                    }
+                                },
+                                onClick = {
+                                    selectedModel = "whisper-large-v3"
+                                    isModelDropdownExpanded = false
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.putString(context, "whisper_model", "whisper-large-v3")
+                                    }
                                 }
-                            }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Whisper Large V3 Turbo", color = C.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                        Text("Faster, lighter on data", color = C.TextMuted, fontSize = 11.sp)
+                                    }
+                                },
+                                onClick = {
+                                    selectedModel = "whisper-large-v3-turbo"
+                                    isModelDropdownExpanded = false
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.putString(context, "whisper_model", "whisper-large-v3-turbo")
+                                    }
+                                }
+                            )
                         }
                     }
                 }
 
                 // Translation Target Language Card
-                item {
-                    PremiumGlassCard {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Translate,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Translation Mode",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
-                                )
-                            }
+                item(key = "translation") {
+                    val langDisplayName = remember(selectedLanguage) { getLanguageDisplayName(selectedLanguage) }
+                    val langLabel = remember(selectedLanguage) {
+                        when (selectedLanguage) {
+                            "none" -> "Keep As-Is"
+                            "english" -> "Auto-Translate to English"
+                            else -> "Auto-Translate to ${selectedLanguage.replaceFirstChar { it.uppercase() }}"
+                        }
+                    }
+                    Box {
+                        PremiumGlassCard {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                SectionHeader(icon = Icons.Default.Translate, title = "Translation Mode")
 
-                            ExposedDropdownMenuBox(
-                                expanded = isLangDropdownExpanded,
-                                onExpandedChange = { isLangDropdownExpanded = !isLangDropdownExpanded }
-                            ) {
-                                OutlinedTextField(
-                                    value = getLanguageDisplayName(selectedLanguage),
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isLangDropdownExpanded) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF5B8DEF),
-                                        unfocusedBorderColor = Color(0xFF2E313B),
-                                        focusedTextColor = Color(0xFFE8EAED),
-                                        unfocusedTextColor = Color(0xFFE8EAED),
-                                        focusedContainerColor = Color(0xFF15171E),
-                                        unfocusedContainerColor = Color(0xFF15171E)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth()
-                                )
-
-                                ExposedDropdownMenu(
+                                DropdownTrigger(
+                                    value = langDisplayName,
                                     expanded = isLangDropdownExpanded,
-                                    onDismissRequest = { isLangDropdownExpanded = false },
-                                    modifier = Modifier.background(Color(0xFF1A1C23))
-                                ) {
-                                    languageOptions.forEach { (lang, display) ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
-                                                    Text(display, color = Color(0xFFE8EAED), fontWeight = FontWeight.SemiBold)
-                                                    Text(
-                                                        text = when (lang) {
-                                                            "none" -> "Whisper detects spoken language → keeps as-is."
-                                                            "english" -> "Detects Spanish spoken → translates to English. Detects English → keeps as-is."
-                                                            else -> "Detects English spoken → translates to Spanish. Detects Spanish → keeps as-is."
-                                                        },
-                                                        color = Color(0xFF6B7076),
-                                                        fontSize = 11.sp
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                selectedLanguage = lang
-                                                isLangDropdownExpanded = false
-                                                scope.launch(Dispatchers.IO) {
-                                                    SecurityUtils.putString(context, "target_language", lang)
-                                                }
-                                            }
-                                        )
+                                    onClick = { isLangDropdownExpanded = true }
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                InfoBox(
+                                    label = langLabel,
+                                    description = when (selectedLanguage) {
+                                        "none" -> "Whisper detects spoken language and keeps it as-is without any translation."
+                                        "english" -> "Whisper detects spoken language. If detected is English → keeps as-is. If detected is Spanish → translates to English."
+                                        else -> "Whisper detects spoken language. If detected is Spanish → keeps as-is. If detected is English → translates to Spanish."
                                     }
-                                }
+                                )
                             }
+                        }
 
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF15171E))
-                                    .border(1.dp, Color(0xFF2E313B), RoundedCornerShape(10.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = when (selectedLanguage) {
-                                            "none" -> "Keep As-Is"
-                                            "english" -> "Auto-Translate to English"
-                                            else -> "Auto-Translate to ${selectedLanguage.replaceFirstChar { it.uppercase() }}"
-                                        },
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF8B8F9A),
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Text(
-                                        text = when (selectedLanguage) {
-                                            "none" -> "Whisper detects spoken language and keeps it as-is without any translation."
-                                            "english" -> "Whisper detects spoken language. If detected is English → keeps as-is. If detected is Spanish → translates to English."
-                                            else -> "Whisper detects spoken language. If detected is Spanish → keeps as-is. If detected is English → translates to Spanish."
-                                        },
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF6B7076),
-                                        lineHeight = 16.sp
-                                    )
-                                }
+                        DropdownMenu(
+                            expanded = isLangDropdownExpanded,
+                            onDismissRequest = { isLangDropdownExpanded = false },
+                            modifier = Modifier.background(C.CardBg)
+                        ) {
+                            languageOptions.forEach { (lang, display) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(display, color = C.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                text = when (lang) {
+                                                    "none" -> "Whisper detects spoken language → keeps as-is."
+                                                    "english" -> "Detects Spanish spoken → translates to English. Detects English → keeps as-is."
+                                                    else -> "Detects English spoken → translates to Spanish. Detects Spanish → keeps as-is."
+                                                },
+                                                color = C.TextMuted,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedLanguage = lang
+                                        isLangDropdownExpanded = false
+                                        scope.launch(Dispatchers.IO) {
+                                            SecurityUtils.putString(context, "target_language", lang)
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
                 }
 
                 // AI Enhancement Card
-                item {
-                    PremiumGlassCard {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoFixHigh,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "AI Enhancement",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
-                                )
-                            }
+                item(key = "ai_enhancement") {
+                    val aiDisplayName = remember(selectedAiModel) { getAiModelDisplayName(selectedAiModel) }
+                    Box {
+                        PremiumGlassCard {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                SectionHeader(icon = Icons.Default.AutoFixHigh, title = "AI Enhancement")
 
-                            ExposedDropdownMenuBox(
-                                expanded = isAiDropdownExpanded,
-                                onExpandedChange = { isAiDropdownExpanded = !isAiDropdownExpanded }
-                            ) {
-                                OutlinedTextField(
-                                    value = getAiModelDisplayName(selectedAiModel),
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isAiDropdownExpanded) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF5B8DEF),
-                                        unfocusedBorderColor = Color(0xFF2E313B),
-                                        focusedTextColor = Color(0xFFE8EAED),
-                                        unfocusedTextColor = Color(0xFFE8EAED),
-                                        focusedContainerColor = Color(0xFF15171E),
-                                        unfocusedContainerColor = Color(0xFF15171E)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth()
-                                )
-
-                                ExposedDropdownMenu(
+                                DropdownTrigger(
+                                    value = aiDisplayName,
                                     expanded = isAiDropdownExpanded,
-                                    onDismissRequest = { isAiDropdownExpanded = false },
-                                    modifier = Modifier.background(Color(0xFF1A1C23))
-                                ) {
-                                    aiModelOptions.forEach { (model, display) ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
-                                                    Text(display, color = Color(0xFFE8EAED), fontWeight = FontWeight.SemiBold)
-                                                    Text(
-                                                        text = when (model) {
-                                                            "none" -> "Raw transcription, no correction"
-                                                            "llama-3.2-3b-preview" -> "Fast lightweight model for basic corrections"
-                                                            "mixtral-8x7b-32768" -> "Powerful model with deep grammar understanding"
-                                                            "gemma2-9b-it" -> "Balanced speed & accuracy for polish"
-                                                            else -> ""
-                                                        },
-                                                        color = Color(0xFF6B7076),
-                                                        fontSize = 11.sp
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                selectedAiModel = model
-                                                isAiDropdownExpanded = false
-                                                scope.launch(Dispatchers.IO) {
-                                                    SecurityUtils.putString(context, "ai_enhancement_model", model)
-                                                }
-                                            }
-                                        )
+                                    onClick = { isAiDropdownExpanded = true }
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                InfoBox(
+                                    label = "Spelling & Grammar Correction",
+                                    description = if (selectedAiModel == "none") {
+                                        "No AI enhancement applied. Raw transcription will be used."
+                                    } else {
+                                        "Applies $aiDisplayName to fix spelling, grammar, and punctuation."
                                     }
-                                }
+                                )
                             }
+                        }
 
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF15171E))
-                                    .border(1.dp, Color(0xFF2E313B), RoundedCornerShape(10.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = "Spelling & Grammar Correction",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF8B8F9A),
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Text(
-                                        text = if (selectedAiModel == "none") {
-                                            "No AI enhancement applied. Raw transcription will be used."
-                                        } else {
-                                            "Applies ${getAiModelDisplayName(selectedAiModel)} to fix spelling, grammar, and punctuation."
-                                        },
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF6B7076),
-                                        lineHeight = 16.sp
-                                    )
-                                }
+                        DropdownMenu(
+                            expanded = isAiDropdownExpanded,
+                            onDismissRequest = { isAiDropdownExpanded = false },
+                            modifier = Modifier.background(C.CardBg)
+                        ) {
+                            aiModelOptions.forEach { (model, display) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(display, color = C.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                text = when (model) {
+                                                    "none" -> "Raw transcription, no correction"
+                                                    "llama-3.2-3b-preview" -> "Fast lightweight model for basic corrections"
+                                                    "mixtral-8x7b-32768" -> "Powerful model with deep grammar understanding"
+                                                    "gemma2-9b-it" -> "Balanced speed & accuracy for polish"
+                                                    else -> ""
+                                                },
+                                                color = C.TextMuted,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedAiModel = model
+                                        isAiDropdownExpanded = false
+                                        scope.launch(Dispatchers.IO) {
+                                            SecurityUtils.putString(context, "ai_enhancement_model", model)
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
                 }
 
                 // Interaction Mode Cards Selector
-                item {
+                item(key = "interaction_mode") {
                     PremiumGlassCard {
                         Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.TouchApp,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Interaction Mode",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
-                                )
-                            }
-                            
+                            SectionHeader(icon = Icons.Default.TouchApp, title = "Interaction Mode")
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -962,7 +774,7 @@ fun MainScreen(
                                     description = "Press & hold overlay to speak. Releases automatically.",
                                     icon = Icons.Default.Mic,
                                     isSelected = interactionMode == "HOLD_TO_TALK",
-                                    selectedColor = Color(0xFF5B8DEF),
+                                    selectedColor = C.Accent,
                                     onClick = {
                                         interactionMode = "HOLD_TO_TALK"
                                         scope.launch(Dispatchers.IO) {
@@ -977,7 +789,7 @@ fun MainScreen(
                                     description = "Tap to record. Tap checkmark/cancel controls when finished.",
                                     icon = Icons.Default.SettingsSuggest,
                                     isSelected = interactionMode == "TAP_TO_TALK",
-                                    selectedColor = Color(0xFF5B8DEF),
+                                    selectedColor = C.Accent,
                                     onClick = {
                                         interactionMode = "TAP_TO_TALK"
                                         scope.launch(Dispatchers.IO) {
@@ -992,28 +804,11 @@ fun MainScreen(
                 }
 
                 // Permissions Panel
-                item {
+                item(key = "permissions") {
                     PremiumGlassCard {
                         Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shield,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5B8DEF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Permissions",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE8EAED)
-                                )
-                            }
-                            
+                            SectionHeader(icon = Icons.Default.Shield, title = "Permissions")
+
                             PermissionPanel(
                                 hasAccessibilityPermission = isServiceAccessible,
                                 onOpenAccessibilitySettings = onOpenAccessibilitySettings,
@@ -1024,7 +819,7 @@ fun MainScreen(
                 }
 
                 // History Header
-                item {
+                item(key = "history_header") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1052,15 +847,15 @@ fun MainScreen(
                             var showClearConfirm by remember { mutableStateOf(false) }
                             TextButton(
                                 onClick = { showClearConfirm = true },
-                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE5484D))
+                                colors = ButtonDefaults.textButtonColors(contentColor = C.Red)
                             ) {
                                 Text("Clear All", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
                             if (showClearConfirm) {
                                 AlertDialog(
                                     onDismissRequest = { showClearConfirm = false },
-                                    title = { Text("Clear All History?", color = Color(0xFFE8EAED)) },
-                                    text = { Text("This will permanently delete all transcription history.", color = Color(0xFF8B8F9A)) },
+                                    title = { Text("Clear All History?", color = C.TextPrimary) },
+                                    text = { Text("This will permanently delete all transcription history.", color = C.TextSecondary) },
                                     confirmButton = {
                                         TextButton(onClick = {
                                             scope.launch(Dispatchers.IO) {
@@ -1077,9 +872,9 @@ fun MainScreen(
                                             Text("Cancel", color = Color(0xFF8B8F9A))
                                         }
                                     },
-                                    containerColor = Color(0xFF1A1C23),
-                                    titleContentColor = Color(0xFFE8EAED),
-                                    textContentColor = Color(0xFF8B8F9A)
+                                    containerColor = C.CardBg,
+                                    titleContentColor = C.TextPrimary,
+                                    textContentColor = C.TextSecondary
                                 )
                             }
                         }
@@ -1088,13 +883,13 @@ fun MainScreen(
 
                 // History Items List
                 if (historyItems.isEmpty()) {
-                    item {
+                    item(key = "history_empty") {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF1A1C23))
-                                .border(1.dp, Color(0xFF2E313B), RoundedCornerShape(16.dp))
+                                .clip(CardShape)
+                                .background(C.CardBg)
+                                .border(1.dp, C.Border, CardShape)
                                 .padding(36.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1105,18 +900,18 @@ fun MainScreen(
                                 Icon(
                                     imageVector = Icons.Default.Mic,
                                     contentDescription = null,
-                                    tint = Color(0xFF2E313B),
+                                    tint = C.Border,
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Text(
                                     text = "Ready for Dictation",
                                     fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF8B8F9A),
+                                    color = C.TextSecondary,
                                     fontSize = 14.sp
                                 )
                                 Text(
                                     text = "Focus a text field, then speak into the overlay to get started.",
-                                    color = Color(0xFF4B5563),
+                                    color = C.TextDim,
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.padding(horizontal = 8.dp)
@@ -1137,9 +932,7 @@ fun MainScreen(
                         }
                         val formattedTime = formatHistoryTime(timestamp)
 
-                        PremiumGlassCard(
-                            borderGlow = Color(0xFF2E313B)
-                        ) {
+                        PremiumGlassCard(borderGlow = C.Border) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1154,19 +947,19 @@ fun MainScreen(
                                         verticalAlignment = Alignment.Top,
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF5B8DEF))
-                                                .offset(y = 6.dp)
-                                        )
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(C.Accent)
+                                        .offset(y = 6.dp)
+                                )
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column {
                                             Text(
                                                 text = text,
                                                 fontSize = 14.sp,
-                                                color = Color(0xFFCDD0D5),
+                                                color = C.TextBody,
                                                 fontWeight = FontWeight.Medium
                                             )
                                             if (timestamp > 0L) {
@@ -1174,7 +967,7 @@ fun MainScreen(
                                                 Text(
                                                     text = formattedTime,
                                                     fontSize = 11.sp,
-                                                    color = Color(0xFF6B7076)
+                                                    color = C.TextMuted
                                                 )
                                             }
                                         }
@@ -1191,7 +984,7 @@ fun MainScreen(
                                         Icon(
                                             imageVector = Icons.Default.Delete,
                                             contentDescription = "Delete",
-                                            tint = Color(0xFFE5484D).copy(alpha = 0.7f),
+                                            tint = C.DeleteIcon,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -1224,21 +1017,77 @@ private fun formatHistoryTime(timestamp: Long): String {
     return sdf.format(Date(timestamp))
 }
 
+// ── Section header used across multiple cards ──
+@Composable
+private fun SectionHeader(icon: ImageVector, title: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(bottom = 16.dp)
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = C.Accent, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(text = title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = C.TextPrimary)
+    }
+}
+
+// ── Lightweight dropdown trigger replacing heavy ExposedDropdownMenuBox + OutlinedTextField ──
+@Composable
+private fun DropdownTrigger(value: String, expanded: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(InputShape)
+            .background(C.InputBg)
+            .border(1.dp, if (expanded) C.Accent else C.Border, InputShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = value, color = C.TextPrimary, fontSize = 14.sp)
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = C.TextSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+// ── Info box below dropdowns ──
+@Composable
+private fun InfoBox(label: String, description: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(InfoBoxShape)
+            .background(C.InputBg)
+            .border(1.dp, C.Border, InfoBoxShape)
+            .padding(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = C.TextSecondary, letterSpacing = 0.5.sp)
+            Text(text = description, fontSize = 11.sp, color = C.TextMuted, lineHeight = 16.sp)
+        }
+    }
+}
+
 @Composable
 fun PremiumGlassCard(
     modifier: Modifier = Modifier,
-    borderGlow: Color = Color(0xFF2E313B),
+    borderGlow: Color = C.Border,
     content: @Composable () -> Unit
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1A1C23))
-            .border(
-                border = BorderStroke(1.dp, borderGlow),
-                shape = RoundedCornerShape(16.dp)
-            )
+            .clip(CardShape)
+            .background(C.CardBg)
+            .border(border = BorderStroke(1.dp, borderGlow), shape = CardShape)
     ) {
         content()
     }
@@ -1255,7 +1104,7 @@ fun InteractionModeCard(
     modifier: Modifier = Modifier
 ) {
     val scale by animateFloatAsState(targetValue = if (isSelected) 1.02f else 1.0f, label = "scale")
-    val borderGlow = if (isSelected) selectedColor else Color(0xFF2E313B)
+    val borderGlow = if (isSelected) selectedColor else C.Border
 
     Box(
         modifier = modifier
@@ -1263,9 +1112,9 @@ fun InteractionModeCard(
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) Color(0xFF1E2129) else Color(0xFF15171E))
-            .border(1.dp, borderGlow, RoundedCornerShape(14.dp))
+            .clip(DropdownShape)
+            .background(if (isSelected) Color(0xFF1E2129) else C.InputBg)
+            .border(1.dp, borderGlow, DropdownShape)
             .clickable(onClick = onClick)
             .padding(14.dp)
             .height(110.dp)
@@ -1287,11 +1136,7 @@ fun InteractionModeCard(
                     modifier = Modifier
                         .size(14.dp)
                         .clip(CircleShape)
-                        .border(
-                            1.5.dp,
-                            if (isSelected) selectedColor else Color(0xFF4B5563),
-                            CircleShape
-                        )
+                        .border(1.5.dp, if (isSelected) selectedColor else C.TextDim, CircleShape)
                         .background(if (isSelected) selectedColor else Color.Transparent)
                 )
             }
@@ -1301,15 +1146,10 @@ fun InteractionModeCard(
                     text = title,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isSelected) Color(0xFFE8EAED) else Color(0xFF8B8F9A)
+                    color = if (isSelected) C.TextPrimary else C.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = description,
-                    fontSize = 10.sp,
-                    color = Color(0xFF6B7280),
-                    lineHeight = 13.sp
-                )
+                Text(text = description, fontSize = 10.sp, color = C.TextMuted, lineHeight = 13.sp)
             }
         }
     }
@@ -1348,31 +1188,12 @@ fun PermissionPanel(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        PermissionRow(
-            title = "Microphone",
-            description = "Needed for voice capture.",
-            isGranted = hasMicPermission,
-            icon = Icons.Default.Mic,
-            onAction = {
-                if (!hasMicPermission) micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        )
-
-        PermissionRow(
-            title = "Draw Over Apps",
-            description = "Shows the floating mic button.",
-            isGranted = hasOverlayPermission,
-            icon = Icons.Default.Settings,
-            onAction = onOpenOverlaySettings
-        )
-
-        PermissionRow(
-            title = "Accessibility Service",
-            description = "Injects transcribed text into fields.",
-            isGranted = hasAccessibilityPermission,
-            icon = Icons.Default.SettingsSuggest,
-            onAction = onOpenAccessibilitySettings
-        )
+        PermissionRow(title = "Microphone", description = "Needed for voice capture.", isGranted = hasMicPermission, icon = Icons.Default.Mic,
+            onAction = { if (!hasMicPermission) micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) })
+        PermissionRow(title = "Draw Over Apps", description = "Shows the floating mic button.", isGranted = hasOverlayPermission, icon = Icons.Default.Settings,
+            onAction = onOpenOverlaySettings)
+        PermissionRow(title = "Accessibility Service", description = "Injects transcribed text into fields.", isGranted = hasAccessibilityPermission, icon = Icons.Default.SettingsSuggest,
+            onAction = onOpenAccessibilitySettings)
     }
 }
 
@@ -1387,9 +1208,9 @@ fun PermissionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF15171E))
-            .border(1.dp, Color(0xFF2E313B), RoundedCornerShape(12.dp))
+            .clip(InputShape)
+            .background(C.InputBg)
+            .border(1.dp, C.Border, InputShape)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1397,42 +1218,22 @@ fun PermissionRow(
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(if (isGranted) Color(0x1A46A758) else Color(0x1AE5484D)),
+                .background(if (isGranted) C.GreenGrantedTint else C.RedTint),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (isGranted) Color(0xFF46A758) else Color(0xFFE5484D),
-                modifier = Modifier.size(18.dp)
-            )
+            Icon(imageVector = icon, contentDescription = null, tint = if (isGranted) C.GreenBadge else C.Red, modifier = Modifier.size(18.dp))
         }
 
         Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFE8EAED)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(if (isGranted) Color(0xFF46A758) else Color(0xFFF59E0B))
-                )
-            }
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = description,
-                fontSize = 10.sp,
-                color = Color(0xFF6B7280),
-                lineHeight = 13.sp
-            )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = C.TextPrimary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if (isGranted) C.GreenBadge else Color(0xFFF59E0B)))
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(text = description, fontSize = 10.sp, color = C.TextMuted, lineHeight = 13.sp)
         }
 
         Spacer(modifier = Modifier.width(10.dp))
@@ -1440,33 +1241,21 @@ fun PermissionRow(
         if (isGranted) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0x1A46A758))
+                    .clip(PillShape)
+                    .background(C.GreenGrantedTint)
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
-                Text(
-                    text = "Granted",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF46A758)
-                )
+                Text(text = "Granted", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = C.GreenBadge)
             }
         } else {
             Button(
                 onClick = onAction,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF5B8DEF).copy(alpha = 0.15f),
-                    contentColor = Color(0xFF5B8DEF)
-                ),
-                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = C.GrantBtnBg, contentColor = C.Accent),
+                shape = PillShape,
                 modifier = Modifier.height(30.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
-                Text(
-                    text = "Grant",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(text = "Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
