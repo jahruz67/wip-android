@@ -161,7 +161,7 @@ fun OverlayUi(
 
     Box(
         modifier = Modifier
-            .size(160.dp, 220.dp)
+            .size(160.dp, 260.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -169,8 +169,7 @@ fun OverlayUi(
                 if (showLanguagePopup) {
                     showLanguagePopup = false
                 }
-            },
-        contentAlignment = Alignment.Center
+            }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
         // Rendered as an AnimatedVisibility overlay within the
@@ -184,7 +183,6 @@ fun OverlayUi(
         ) {
             Box(
                 modifier = Modifier
-                    .offset(y = 0.dp)
                     .width(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.97f))
@@ -234,6 +232,7 @@ fun OverlayUi(
             Box(
                 modifier = Modifier
                     .size(56.dp)
+                    .align(Alignment.BottomCenter)
                     .drawBehind {
                         val cornerRadius = if (isExpanded) 28.dp.toPx() else size.height / 2f
                         val colorBlue = Color(0xFF5B8DEF)
@@ -300,6 +299,7 @@ fun OverlayUi(
             Box(
                 modifier = Modifier
                     .size(56.dp)
+                    .align(Alignment.BottomCenter)
                     .drawBehind {
                         val strokeWidth = 1.dp.toPx()
                         scale(1.1f) {
@@ -321,7 +321,7 @@ fun OverlayUi(
         Box(
             modifier = Modifier
                 .size(72.dp)
-                .align(Alignment.Center)
+                .align(Alignment.BottomCenter)
                 .pointerInteropFilter { motionEvent ->
                     // Let TAP mode buttons and spinner handle their own touches
                     if (state == OverlayState.RECORDING_TAP || state == OverlayState.TRANSCRIBING) {
@@ -434,7 +434,7 @@ fun OverlayUi(
             modifier = Modifier
                 .width(animatedWidth)
                 .height(animatedHeight)
-                .align(Alignment.Center)
+                .align(Alignment.BottomCenter)
                 .graphicsLayer {
                     scaleX = containerScale
                     scaleY = containerScale
