@@ -28,13 +28,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -75,6 +72,7 @@ fun OverlayUi(
     onDragEnd: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var recordJob by remember { mutableStateOf<Job?>(null) }
 
     var isDragging by remember { mutableStateOf(false) }
@@ -156,7 +154,11 @@ fun OverlayUi(
     // ROOT LAYOUT
     // A fixed-size container that never changes size, preventing
     // touch collision bounds from shifting during state transitions.
+    // The gesture target and visual capsule are always centered
+    // and never move, regardless of popup visibility.
     // ─────────────────────────────────────────────────────────
+    val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
+
     Box(
         modifier = Modifier
             .size(160.dp, 220.dp)
@@ -170,14 +172,61 @@ fun OverlayUi(
             },
         contentAlignment = Alignment.Center
     ) {
-        // ── Language Popup via Material3 AlertDialog ──────────
-        // Rendered as a modal dialog layer, completely independent
-        // of the button layout — eliminates all popup jitter.
-        if (showLanguagePopup) {
-            LanguagePopupDialog(
-                initialTargetLanguage = initialTargetLanguage,
-                onDismiss = { showLanguagePopup = false }
-            )
+        // ── Language Popup (inline composable, no Dialog/Popup) ─
+        // Rendered as an AnimatedVisibility overlay within the
+        // fixed container. Uses no Dialog so it works in system
+        // overlay windows. Positioned above the button area.
+        AnimatedVisibility(
+            visible = showLanguagePopup,
+            enter = fadeIn() + scaleIn(initialScale = 0.8f),
+            exit = fadeOut() + scaleOut(targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset(y = 0.dp)
+                    .width(160.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1E2129).copy(alpha = 0.97f))
+                    .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
+                    
+                    options.forEach { (key, display) ->
+                        val isSelected = popupTargetLanguage.value.equals(key, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color(0xFF5B8DEF) else Color.Transparent)
+                                .clickable {
+                                    popupTargetLanguage.value = key
+                                    scope.launch(Dispatchers.IO) {
+                                        SecurityUtils.putString(context, "target_language", key)
+                                    }
+                                    val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
+                                    ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
+                                    showLanguagePopup = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = display,
+                                color = if (isSelected) Color.White else Color(0xFF9CA3AF),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // ── Aura Rings (visual only, behind the capsule) ─────
@@ -482,83 +531,4 @@ fun OverlayUi(
             }
         }
     }
-}
-
-@Composable
-private fun LanguagePopupDialog(
-    initialTargetLanguage: String,
-    onDismiss: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    var targetLanguage by remember { mutableStateOf(initialTargetLanguage) }
-    val options = listOf("none" to "None", "english" to "English", "spanish" to "Spanish")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E2129).copy(alpha = 0.98f),
-        titleContentColor = Color(0xFFE8EAED),
-        textContentColor = Color(0xFF9CA3AF),
-        title = {
-            Text(
-                text = "Translation Mode",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.SansSerif
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                options.forEach { (key, display) ->
-                    val isSelected = targetLanguage.equals(key, ignoreCase = true)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) Color(0xFF5B8DEF) else Color(0xFF15171E))
-                            .clickable {
-                                targetLanguage = key
-                                scope.launch(Dispatchers.IO) {
-                                    SecurityUtils.putString(context, "target_language", key)
-                                }
-                                val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
-                                ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
-                                onDismiss()
-                            }
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = display,
-                                color = if (isSelected) Color.White else Color(0xFFE8EAED),
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                            val subtitle = when (key) {
-                                "none" -> "Whisper detects spoken language → keeps as-is."
-                                "english" -> "Detects Spanish spoken → translates to English. Detects English → keeps as-is."
-                                else -> "Detects English spoken → translates to Spanish. Detects Spanish → keeps as-is."
-                            }
-                            Text(
-                                text = subtitle,
-                                color = if (isSelected) Color.White.copy(alpha = 0.7f) else Color(0xFF6B7076),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.SansSerif,
-                                lineHeight = 15.sp
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF5B8DEF))
-            ) {
-                Text("Cancel", fontWeight = FontWeight.SemiBold)
-            }
-        }
-    )
 }
