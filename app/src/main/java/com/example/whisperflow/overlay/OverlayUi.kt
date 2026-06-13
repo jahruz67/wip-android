@@ -160,8 +160,8 @@ fun OverlayUi(
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
     Box(
-        modifier = Modifier
-            .size(160.dp, 260.dp)
+            modifier = Modifier
+                .size(160.dp, 210.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -183,6 +183,7 @@ fun OverlayUi(
         ) {
             Box(
                 modifier = Modifier
+                    .offset(y = 16.dp)
                     .width(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.97f))
