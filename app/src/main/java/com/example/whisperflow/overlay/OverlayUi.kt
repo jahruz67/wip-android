@@ -73,8 +73,7 @@ fun OverlayUi(
     onCancelRecording: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float, Float) -> Unit,
-    onDragEnd: () -> Unit,
-    onLanguagePopupVisibilityChanged: (Boolean) -> Unit = {}
+    onDragEnd: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -89,16 +88,9 @@ fun OverlayUi(
     var isLongPressTriggered by remember { mutableStateOf(false) }
     var showLanguagePopup by remember { mutableStateOf(false) }
 
-    val setShowLanguagePopup = { visible: Boolean ->
-        if (showLanguagePopup != visible) {
-            showLanguagePopup = visible
-            onLanguagePopupVisibilityChanged(visible)
-        }
-    }
-
     LaunchedEffect(state) {
         if (state != OverlayState.IDLE) {
-            setShowLanguagePopup(false)
+            showLanguagePopup = false
         }
     }
     
@@ -194,7 +186,7 @@ fun OverlayUi(
                     // Only close popup on clicks that aren't consumed by popup items
                     enabled = showLanguagePopup
                 ) {
-                    setShowLanguagePopup(false)
+                    showLanguagePopup = false
                 }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
@@ -232,7 +224,7 @@ fun OverlayUi(
                                     }
                                     val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
                                     ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
-                                    setShowLanguagePopup(false)
+                                    showLanguagePopup = false
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                         ) {
@@ -366,7 +358,7 @@ fun OverlayUi(
                             if (interactionMode == "HOLD_TO_TALK" && state == OverlayState.IDLE) {
                                 val isDoubleTap = (now - lastTapTime) < 300
                                 if (isDoubleTap) {
-                                    setShowLanguagePopup(!showLanguagePopup)
+                                    showLanguagePopup = !showLanguagePopup
                                     isDoubleTapTriggered = true
                                 } else {
                                     isDoubleTapTriggered = false
@@ -381,7 +373,7 @@ fun OverlayUi(
                                 isLongPressTriggered = false
                                 longPressJob = scope.launch {
                                     delay(600)
-                                    setShowLanguagePopup(!showLanguagePopup)
+                                    showLanguagePopup = !showLanguagePopup
                                     isLongPressTriggered = true
                                 }
                             }
@@ -401,7 +393,7 @@ fun OverlayUi(
 
                             if (!isDragging && (abs(totalDistX) > 10 || abs(totalDistY) > 10)) {
                                 isDragging = true
-                                setShowLanguagePopup(false)
+                                showLanguagePopup = false
                                 onDragStart()
                                 recordJob?.cancel()
                                 longPressJob?.cancel()
@@ -425,14 +417,14 @@ fun OverlayUi(
                                 } else if (isDoubleTapTriggered) {
                                     isDoubleTapTriggered = false
                                 } else if (showLanguagePopup) {
-                                    setShowLanguagePopup(false)
+                                    showLanguagePopup = false
                                 }
                             } else if (!isDragging && !isRecording && state == OverlayState.IDLE) {
                                 if (interactionMode == "TAP_TO_TALK") {
                                     if (isLongPressTriggered) {
                                         isLongPressTriggered = false
                                     } else if (showLanguagePopup) {
-                                        setShowLanguagePopup(false)
+                                        showLanguagePopup = false
                                     } else {
                                         onStateChange(OverlayState.RECORDING_TAP)
                                         onStartRecording()
