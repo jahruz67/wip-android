@@ -159,30 +159,19 @@ fun OverlayUi(
     // ─────────────────────────────────────────────────────────
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
-    // ── Dynamic container sizing ──
+    // ── Container sizing ──
     // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
     // When the language popup is visible, it expands both upward and wider to accommodate it.
     // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
-    // Width expands instantly (no animation) when popup appears so touch targets
-    // are immediately within bounds — the popup's own AnimatedVisibility handles visuals.
-    val containerWidth by animateDpAsState(
-        targetValue = when {
-            showLanguagePopup -> 180.dp
-            isExpanded -> 130.dp
-            else -> 56.dp
-        },
-        animationSpec = if (showLanguagePopup) snap() else spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
-        label = "containerWidth"
-    )
-    val containerHeight by animateDpAsState(
-        targetValue = if (showLanguagePopup) 210.dp else 56.dp,
-        animationSpec = if (showLanguagePopup) snap() else spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
-        label = "containerHeight"
-    )
+    // Width/height are set instantly (no animation) to avoid visual glitching where
+    // the popup and container animate at different rates.
+    val containerWidth = when {
+        showLanguagePopup -> 180.dp
+        isExpanded -> 130.dp
+        else -> 56.dp
+    }
+    val containerHeight = if (showLanguagePopup) 210.dp else 56.dp
 
-    // Use a Box that does NOT clip to bounds so that children rendered
-    // outside the container's animated bounds remain tappable (the
-    // ComposeView itself has clipChildren=false already at the window level).
     Box(
             modifier = Modifier
                 .width(containerWidth)
@@ -197,15 +186,9 @@ fun OverlayUi(
                 }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
-        // Rendered as an AnimatedVisibility overlay within the
-        // fixed container. Uses no Dialog so it works in system
-        // overlay windows. Positioned above the button area.
-        AnimatedVisibility(
-            visible = showLanguagePopup,
-            enter = fadeIn() + scaleIn(initialScale = 0.8f),
-            exit = fadeOut() + scaleOut(targetScale = 0.8f),
-            modifier = Modifier.align(Alignment.TopCenter)
-        ) {
+        // Rendered as a simple visibility toggle within the fixed container.
+        // Uses no animation so everything appears at once without glitching.
+        if (showLanguagePopup) {
             Box(
                 modifier = Modifier
                     .offset(y = 16.dp)
