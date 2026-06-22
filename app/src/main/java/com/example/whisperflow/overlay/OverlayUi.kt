@@ -160,14 +160,19 @@ fun OverlayUi(
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
     // ── Container sizing ──
-    // The container is always tall enough (210dp) to accommodate the language
-    // popup above the button. The mic button and gesture target are at the
-    // bottom, the popup appears at the top. Since the container never changes
-    // size, the button never moves.
-    // Width expands when in RECORDING_TAP mode for action buttons.
-    val containerWidth = if (isExpanded) 130.dp else 56.dp
-    // Use a fixed container height so the button never shifts when popup appears.
-    // The popup (160dp) + offset (16dp) + button (~34dp) fits within 210dp.
+    // The container is always tall enough to accommodate the language popup above
+    // the button. The mic button and gesture target are at the bottom, the popup
+    // appears at the top. Since the container never changes size, the button
+    // never moves.
+    // Width expands when popup is visible to keep popup items within touchable bounds,
+    // and expands in RECORDING_TAP mode for action buttons.
+    val containerWidth = when {
+        showLanguagePopup -> 200.dp
+        isExpanded -> 130.dp
+        else -> 56.dp
+    }
+    // Fixed height so the button never shifts. The popup sits above the button
+    // with a small gap.
     val containerHeight = 210.dp
 
     Box(
@@ -199,8 +204,8 @@ fun OverlayUi(
         ) {
             Box(
                 modifier = Modifier
-                    .offset(y = 16.dp)
-                    .width(160.dp)
+                    .offset(y = 8.dp)
+                    .width(180.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.97f))
                     .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
