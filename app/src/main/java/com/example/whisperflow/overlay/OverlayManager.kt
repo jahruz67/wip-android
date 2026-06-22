@@ -507,20 +507,16 @@ class OverlayManager(
         val maxAllowedX = screenWidth - expandedWidthPx + safePaddingPx
         val minAllowedX = -safePaddingPx
 
-        if (floatX > maxAllowedX) {
-            floatX = floatX.coerceIn(minAllowedX.toFloat(), maxAllowedX.toFloat())
-            pendingX = floatX.toInt()
-            params.x = pendingX
-        }
+        floatX = floatX.coerceIn(minAllowedX.toFloat(), maxAllowedX.toFloat())
+        pendingX = floatX.toInt()
+        params.x = pendingX
 
         val maxAllowedY = screenHeight - expandedHeightPx + safePaddingPx
         val minAllowedY = -safePaddingPx
 
-        if (floatY > maxAllowedY) {
-            floatY = floatY.coerceIn(minAllowedY.toFloat(), maxAllowedY.toFloat())
-            pendingY = floatY.toInt()
-            params.y = pendingY
-        }
+        floatY = floatY.coerceIn(minAllowedY.toFloat(), maxAllowedY.toFloat())
+        pendingY = floatY.toInt()
+        params.y = pendingY
 
         composeView?.let { view ->
             try {
@@ -647,11 +643,34 @@ class OverlayManager(
                         }
                     },
                     onDragEnd = {
+                        // Ensure final position is synced to layout params
+                        params.x = floatX.toInt()
+                        params.y = floatY.toInt()
+                        composeView?.let { view ->
+                            try {
+                                windowManager.updateViewLayout(view, params)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to update layout params on drag end", e)
+                            }
+                        }
+
                         if (isNearDismissTarget) {
                             hideOverlay()
                             onDismissed?.invoke()
                         }
                         hideDismissTargetView()
+                    },
+                    onLanguagePopupVisibilityChanged = { visible ->
+                        // Force window manager to update layout and size with current params coordinates
+                        params.x = floatX.toInt()
+                        params.y = floatY.toInt()
+                        composeView?.let { view ->
+                            try {
+                                windowManager.updateViewLayout(view, params)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to update view layout on popup visibility change", e)
+                            }
+                        }
                     }
                 )
             }
@@ -668,6 +687,10 @@ class OverlayManager(
 
         // Reuse existing ComposeView + composition if available
         ensureComposeViewCreated()
+
+        // Explicitly sync window layout parameters with the dragged position
+        params.x = floatX.toInt()
+        params.y = floatY.toInt()
 
         if (isViewAttached) {
             // View was previously attached — just update layout params
