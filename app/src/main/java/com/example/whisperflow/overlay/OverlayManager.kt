@@ -359,9 +359,10 @@ class OverlayManager(
 
                 if (settings.aiEnhancementModel != "none" && finalText.isNotEmpty()) {
                     val enhancerModel = when (settings.aiEnhancementModel) {
-                        "llama-3.2-3b-preview" -> "llama-3.2-3b-preview"
-                        "mixtral-8x7b-32768" -> "mixtral-8x7b-32768"
-                        "gemma2-9b-it" -> "gemma2-9b-it"
+                        "openai/gpt-oss-20b" -> "openai/gpt-oss-20b"
+                        "qwen/qwen3.6-27b" -> "qwen/qwen3.6-27b"
+                        "qwen/qwen3-32b" -> "qwen/qwen3-32b"
+                        "openai/gpt-oss-120b" -> "openai/gpt-oss-120b"
                         else -> "llama-3.1-8b-instant"
                     }
 
@@ -486,8 +487,8 @@ class OverlayManager(
         val screenWidth = displayMetrics.widthPixels
         val screenHeight = displayMetrics.heightPixels
 
-        val expandedWidthPx = (226f * density).toInt()
-        val expandedHeightPx = (152f * density).toInt()
+        val expandedWidthPx = (130f * density).toInt()
+        val expandedHeightPx = (72f * density).toInt()
 
         val maxAllowedX = screenWidth - expandedWidthPx + safePaddingPx
         val minAllowedX = -safePaddingPx

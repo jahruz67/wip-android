@@ -152,16 +152,32 @@ fun OverlayUi(
 
     // ─────────────────────────────────────────────────────────
     // ROOT LAYOUT
-    // A fixed-size container that never changes size, preventing
-    // touch collision bounds from shifting during state transitions.
-    // The gesture target and visual capsule are always centered
+    // At rest, the container is 56dp (matches the mic button size).
+    // When the language popup is visible, it expands upward to accommodate it.
+    // The gesture target and visual capsule are always bottom-centered
     // and never move, regardless of popup visibility.
     // ─────────────────────────────────────────────────────────
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
+    // ── Dynamic container sizing ──
+    // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
+    // When the language popup is visible, it expands upward to accommodate it.
+    // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
+    val containerWidth by animateDpAsState(
+        targetValue = if (isExpanded) 130.dp else 56.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+        label = "containerWidth"
+    )
+    val containerHeight by animateDpAsState(
+        targetValue = if (showLanguagePopup) 210.dp else 56.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+        label = "containerHeight"
+    )
+
     Box(
             modifier = Modifier
-                .size(160.dp, 210.dp)
+                .width(containerWidth)
+                .height(containerHeight)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
