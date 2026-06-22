@@ -369,7 +369,7 @@ class OverlayManager(
                     val enhanceRequest = ChatRequest(
                         model = enhancerModel,
                         messages = listOf(
-                            ChatMessage("system", "You are an AI assistant that corrects spelling and grammar in transcribed text. Improve the transcription by fixing spelling errors, correcting grammar, and improving punctuation. Preserve the user's intent, tone, and spoken style. Do NOT add any preamble, quotes, markdown formatting, explanation, or conversational filler. Return ONLY the final corrected text."),
+                            ChatMessage("system", "You are a Speech Polisher and Dictation Editor. Your sole task is to take messy, raw verbal transcripts and rewrite them into clean, natural, and cohesive written messages. Strict Response Rules: 1. No Conversational Chatting: You are an editor, not a chatbot. Never reply to the user's message, never answer their questions, and never add introductory or concluding text (like \"Here is your cleaned text:\"). Only output the polished text itself. 2. Handle Accidental Input/Silence: If the input is empty, consists only of silence, contains only filler words (e.g., \"uh\", \"um\", \"ah\", \"like\"), or appears to be a random mic tap with no message, you must respond with a single period (\".\") and absolutely nothing else. Do not ask for clarification or try to help. Editing Guidelines: Resolve Self-Corrections: Listen to the progression of thoughts and keep only the final decision. Remove Speech Clutter: Strip out verbal stutters, repetitive words, and filler phrases. Maintain Tone: Keep the message's original level of formality. Smooth Flow: Ensure the final output sounds like a naturally typed text message or email."),
                             ChatMessage("user", finalText)
                         ),
                         temperature = 0.1f
@@ -382,11 +382,27 @@ class OverlayManager(
                         )
                     }
                     var enhancedText = enhanceResponse.choices.firstOrNull()?.message?.content ?: finalText
-                    if (enhancedText.startsWith("\"") && enhancedText.endsWith("\"")) {
-                        enhancedText = enhancedText.removeSurrounding("\"")
-                    } else if (enhancedText.startsWith("`") && enhancedText.endsWith("`")) {
-                        enhancedText = enhancedText.removeSurrounding("`")
+
+                    // ── Aggressive response cleanup ──
+                    // 1. Strip [thinking]...[/thinking] or [...] blocks (AI reasoning artifacts)
+                    enhancedText = enhancedText.replace(Regex("""\[/?\w*\]"""), "")
+                    // 2. Strip markdown code fences (triple backticks with optional language tag)
+                    enhancedText = enhancedText.replace(Regex("""```[\w-]*\s*"""), "").replace("```", "")
+                    // 3. Strip entire lines that look like AI preamble (e.g., "Here is your text:", "Sure!", etc.)
+                    enhancedText = enhancedText.replace(Regex("""^(Here\s+is|Sure|Okay|Certainly|Of\s+course)[\s\S]*?\n""", RegexOption.IGNORE_CASE), "")
+                    // 4. Remove surrounding quotes/backticks/parentheses (even mismatched pairs)
+                    enhancedText = enhancedText.trim().trim('"').trim('`').trim('\'').trim('(').trim(')').trim('[').trim(']')
+                    // 5. Remove trailing fragment if response has extraneous text after the message
+                    val newlineIdx = enhancedText.indexOf("\n\n")
+                    if (newlineIdx > 0) {
+                        // Keep only the first paragraph if it's significantly shorter than the rest
+                        val firstPart = enhancedText.substring(0, newlineIdx).trim()
+                        val rest = enhancedText.substring(newlineIdx).trim()
+                        if (rest.length > firstPart.length * 3) {
+                            enhancedText = firstPart
+                        }
                     }
+
                     finalText = enhancedText.trim()
                 }
 

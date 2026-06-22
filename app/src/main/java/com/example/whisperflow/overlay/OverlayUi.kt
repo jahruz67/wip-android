@@ -161,10 +161,14 @@ fun OverlayUi(
 
     // ── Dynamic container sizing ──
     // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
-    // When the language popup is visible, it expands upward to accommodate it.
+    // When the language popup is visible, it expands both upward and wider to accommodate it.
     // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
     val containerWidth by animateDpAsState(
-        targetValue = if (isExpanded) 130.dp else 56.dp,
+        targetValue = when {
+            showLanguagePopup -> 180.dp
+            isExpanded -> 130.dp
+            else -> 56.dp
+        },
         animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
         label = "containerWidth"
     )
