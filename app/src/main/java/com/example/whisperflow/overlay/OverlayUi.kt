@@ -160,17 +160,12 @@ fun OverlayUi(
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
     // ── Container sizing ──
-    // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
-    // When the language popup is visible, it expands both upward and wider to accommodate it.
-    // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
-    // Width/height are set instantly (no animation) to avoid visual glitching where
-    // the popup and container animate at different rates.
-    val containerWidth = when {
-        showLanguagePopup -> 180.dp
-        isExpanded -> 130.dp
-        else -> 56.dp
-    }
-    val containerHeight = if (showLanguagePopup) 210.dp else 56.dp
+    // The container stays small (56dp tall) at all times in IDLE state.
+    // The language popup renders outside the container bounds (the ComposeView
+    // has clipChildren=false), so it appears above the button without pushing it.
+    // When in RECORDING_TAP mode, the container expands width for action buttons.
+    val containerWidth = if (isExpanded) 130.dp else 56.dp
+    val containerHeight = 56.dp
 
     Box(
             modifier = Modifier
@@ -186,12 +181,13 @@ fun OverlayUi(
                 }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
-        // Rendered as a simple visibility toggle within the fixed container.
-        // Uses no animation so everything appears at once without glitching.
+        // Positioned above the button using a negative Y offset.
+        // The ComposeView has clipChildren=false, so it renders outside
+        // the container bounds without pushing the button down.
         if (showLanguagePopup) {
             Box(
                 modifier = Modifier
-                    .offset(y = 16.dp)
+                    .offset(y = (-160).dp)
                     .width(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.97f))
