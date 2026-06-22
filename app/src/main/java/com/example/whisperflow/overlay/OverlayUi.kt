@@ -160,52 +160,39 @@ fun OverlayUi(
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
     // ── Container sizing ──
-    // The container is always tall enough to accommodate the language popup above
-    // the button. The mic button and gesture target are at the bottom, the popup
-    // appears at the top. Since the container never changes size, the button
-    // never moves.
-    // Width expands when popup is visible to keep popup items within touchable bounds,
-    // and expands in RECORDING_TAP mode for action buttons.
+    // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
+    // When the language popup is visible, it expands both upward and wider to accommodate it.
+    // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
+    // Width/height are set instantly (no animation) to avoid visual glitching where
+    // the popup and container animate at different rates.
     val containerWidth = when {
-        showLanguagePopup -> 200.dp
+        showLanguagePopup -> 180.dp
         isExpanded -> 130.dp
         else -> 56.dp
     }
-    // Fixed height so the button never shifts. The popup sits above the button
-    // with a small gap.
-    val containerHeight = 210.dp
+    val containerHeight = if (showLanguagePopup) 210.dp else 56.dp
 
     Box(
             modifier = Modifier
                 .width(containerWidth)
                 .height(containerHeight)
-                .then(
-                    if (showLanguagePopup) {
-                        Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            showLanguagePopup = false
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    // Only close popup on clicks that aren't consumed by popup items
+                    enabled = showLanguagePopup
+                ) {
+                    showLanguagePopup = false
+                }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
-        // Positioned at the top of the container, above the button.
-        // Always composed (visible/hidden via showLanguagePopup flag)
-        // so touch targets are always within the container bounds.
-        AnimatedVisibility(
-            visible = showLanguagePopup,
-            enter = fadeIn() + scaleIn(initialScale = 0.8f),
-            exit = fadeOut() + scaleOut(targetScale = 0.8f),
-            modifier = Modifier.align(Alignment.TopCenter)
-        ) {
+        // Rendered as a simple visibility toggle within the fixed container.
+        // Uses no animation so everything appears at once without glitching.
+        if (showLanguagePopup) {
             Box(
                 modifier = Modifier
-                    .offset(y = 8.dp)
-                    .width(180.dp)
+                    .offset(y = 16.dp)
+                    .width(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.97f))
                     .border(1.dp, Color(0xFF5B8DEF).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
