@@ -145,8 +145,6 @@ fun MainScreen(
         listOf(
             "none" to "None",
             "openai/gpt-oss-20b" to "GPT-OSS 20B (Fast)",
-            "qwen/qwen3.6-27b" to "Qwen 3.6 27B (Powerful)",
-            "qwen/qwen3-32b" to "Qwen 3 32B (Premium)",
             "openai/gpt-oss-120b" to "GPT-OSS 120B (Ultra)"
         )
     }
@@ -738,8 +736,6 @@ fun MainScreen(
                                                 text = when (model) {
                                                     "none" -> "Raw transcription, no correction"
                                                     "openai/gpt-oss-20b" -> "Fast 20B model optimized for grammar correction"
-                                                    "qwen/qwen3.6-27b" -> "Powerful 27B model with deep grammar understanding"
-                                                    "qwen/qwen3-32b" -> "Premium 32B model for high-quality polish"
                                                     "openai/gpt-oss-120b" -> "Ultra 120B model for the best possible enhancement"
                                                     else -> ""
                                                 },

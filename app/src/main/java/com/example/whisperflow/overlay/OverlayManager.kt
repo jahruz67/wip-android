@@ -360,8 +360,6 @@ class OverlayManager(
                 if (settings.aiEnhancementModel != "none" && finalText.isNotEmpty()) {
                     val enhancerModel = when (settings.aiEnhancementModel) {
                         "openai/gpt-oss-20b" -> "openai/gpt-oss-20b"
-                        "qwen/qwen3.6-27b" -> "qwen/qwen3.6-27b"
-                        "qwen/qwen3-32b" -> "qwen/qwen3-32b"
                         "openai/gpt-oss-120b" -> "openai/gpt-oss-120b"
                         else -> "llama-3.1-8b-instant"
                     }
