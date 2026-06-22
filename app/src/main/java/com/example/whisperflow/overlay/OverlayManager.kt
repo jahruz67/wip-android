@@ -132,6 +132,7 @@ class OverlayManager(
     private var pendingX = 50
     private var pendingY = 500
     private var isFrameCallbackScheduled = false
+    private var isLanguagePopupOpen = false
 
     private val frameCallback = object : android.view.Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -652,6 +653,26 @@ class OverlayManager(
                             onDismissed?.invoke()
                         }
                         hideDismissTargetView()
+                    },
+                    onLanguagePopupVisibilityChanged = { visible ->
+                        if (isLanguagePopupOpen != visible) {
+                            isLanguagePopupOpen = visible
+                            val diffPx = (OVERLAY_POPUP_HEIGHT_DIFF_DP * density).toInt()
+                            if (visible) {
+                                floatY -= diffPx
+                            } else {
+                                floatY += diffPx
+                            }
+                            pendingY = floatY.toInt()
+                            params.y = pendingY
+                            composeView?.let { view ->
+                                try {
+                                    windowManager.updateViewLayout(view, params)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to update overlay position for language popup", e)
+                                }
+                            }
+                        }
                     }
                 )
             }
@@ -712,6 +733,14 @@ class OverlayManager(
         if (!isShowing) return
         if (overlayState.value == OverlayState.RECORDING_HOLD || overlayState.value == OverlayState.RECORDING_TAP) {
             cancelRecording()
+        }
+
+        if (isLanguagePopupOpen) {
+            isLanguagePopupOpen = false
+            val diffPx = (OVERLAY_POPUP_HEIGHT_DIFF_DP * density).toInt()
+            floatY += diffPx
+            pendingY = floatY.toInt()
+            params.y = pendingY
         }
 
         // Remove the view from the window but keep the ComposeView + composition

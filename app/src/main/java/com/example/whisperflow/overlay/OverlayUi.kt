@@ -54,6 +54,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
+const val OVERLAY_CLOSED_HEIGHT_DP = 56
+const val OVERLAY_OPENED_HEIGHT_DP = 210
+const val OVERLAY_POPUP_HEIGHT_DIFF_DP = OVERLAY_OPENED_HEIGHT_DP - OVERLAY_CLOSED_HEIGHT_DP
+
 enum class OverlayState { IDLE, RECORDING_HOLD, RECORDING_TAP, TRANSCRIBING }
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalAnimationApi::class)
@@ -69,7 +73,8 @@ fun OverlayUi(
     onCancelRecording: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float, Float) -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    onLanguagePopupVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -84,9 +89,16 @@ fun OverlayUi(
     var isLongPressTriggered by remember { mutableStateOf(false) }
     var showLanguagePopup by remember { mutableStateOf(false) }
 
+    val setShowLanguagePopup = { visible: Boolean ->
+        if (showLanguagePopup != visible) {
+            showLanguagePopup = visible
+            onLanguagePopupVisibilityChanged(visible)
+        }
+    }
+
     LaunchedEffect(state) {
         if (state != OverlayState.IDLE) {
-            showLanguagePopup = false
+            setShowLanguagePopup(false)
         }
     }
     
@@ -170,7 +182,7 @@ fun OverlayUi(
         isExpanded -> 130.dp
         else -> 56.dp
     }
-    val containerHeight = if (showLanguagePopup) 210.dp else 56.dp
+    val containerHeight = if (showLanguagePopup) OVERLAY_OPENED_HEIGHT_DP.dp else OVERLAY_CLOSED_HEIGHT_DP.dp
 
     Box(
             modifier = Modifier
@@ -182,7 +194,7 @@ fun OverlayUi(
                     // Only close popup on clicks that aren't consumed by popup items
                     enabled = showLanguagePopup
                 ) {
-                    showLanguagePopup = false
+                    setShowLanguagePopup(false)
                 }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
@@ -191,6 +203,7 @@ fun OverlayUi(
         if (showLanguagePopup) {
             Box(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
                     .offset(y = 16.dp)
                     .width(160.dp)
                     .clip(RoundedCornerShape(16.dp))
@@ -219,7 +232,7 @@ fun OverlayUi(
                                     }
                                     val msg = if (key == "none") "Keep As-Is" else "Auto-Translate to $display"
                                     ToastHelper.showToast(context, "Translation: $msg", Toast.LENGTH_SHORT)
-                                    showLanguagePopup = false
+                                    setShowLanguagePopup(false)
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                         ) {
@@ -353,7 +366,7 @@ fun OverlayUi(
                             if (interactionMode == "HOLD_TO_TALK" && state == OverlayState.IDLE) {
                                 val isDoubleTap = (now - lastTapTime) < 300
                                 if (isDoubleTap) {
-                                    showLanguagePopup = !showLanguagePopup
+                                    setShowLanguagePopup(!showLanguagePopup)
                                     isDoubleTapTriggered = true
                                 } else {
                                     isDoubleTapTriggered = false
@@ -368,7 +381,7 @@ fun OverlayUi(
                                 isLongPressTriggered = false
                                 longPressJob = scope.launch {
                                     delay(600)
-                                    showLanguagePopup = !showLanguagePopup
+                                    setShowLanguagePopup(!showLanguagePopup)
                                     isLongPressTriggered = true
                                 }
                             }
@@ -388,7 +401,7 @@ fun OverlayUi(
 
                             if (!isDragging && (abs(totalDistX) > 10 || abs(totalDistY) > 10)) {
                                 isDragging = true
-                                showLanguagePopup = false
+                                setShowLanguagePopup(false)
                                 onDragStart()
                                 recordJob?.cancel()
                                 longPressJob?.cancel()
@@ -412,14 +425,14 @@ fun OverlayUi(
                                 } else if (isDoubleTapTriggered) {
                                     isDoubleTapTriggered = false
                                 } else if (showLanguagePopup) {
-                                    showLanguagePopup = false
+                                    setShowLanguagePopup(false)
                                 }
                             } else if (!isDragging && !isRecording && state == OverlayState.IDLE) {
                                 if (interactionMode == "TAP_TO_TALK") {
                                     if (isLongPressTriggered) {
                                         isLongPressTriggered = false
                                     } else if (showLanguagePopup) {
-                                        showLanguagePopup = false
+                                        setShowLanguagePopup(false)
                                     } else {
                                         onStateChange(OverlayState.RECORDING_TAP)
                                         onStartRecording()
