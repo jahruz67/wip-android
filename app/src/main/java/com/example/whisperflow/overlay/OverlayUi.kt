@@ -160,34 +160,46 @@ fun OverlayUi(
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
     // ── Container sizing ──
-    // The container stays small (56dp tall) at all times in IDLE state.
-    // The language popup renders outside the container bounds (the ComposeView
-    // has clipChildren=false), so it appears above the button without pushing it.
-    // When in RECORDING_TAP mode, the container expands width for action buttons.
+    // The container is always tall enough (210dp) to accommodate the language
+    // popup above the button. The mic button and gesture target are at the
+    // bottom, the popup appears at the top. Since the container never changes
+    // size, the button never moves.
+    // Width expands when in RECORDING_TAP mode for action buttons.
     val containerWidth = if (isExpanded) 130.dp else 56.dp
-    val containerHeight = 56.dp
+    // Use a fixed container height so the button never shifts when popup appears.
+    // The popup (160dp) + offset (16dp) + button (~34dp) fits within 210dp.
+    val containerHeight = 210.dp
 
     Box(
             modifier = Modifier
                 .width(containerWidth)
                 .height(containerHeight)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    // Only close popup on clicks that aren't consumed by popup items
-                    enabled = showLanguagePopup
-                ) {
-                    showLanguagePopup = false
-                }
+                .then(
+                    if (showLanguagePopup) {
+                        Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            showLanguagePopup = false
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
-        // Positioned above the button using a negative Y offset.
-        // The ComposeView has clipChildren=false, so it renders outside
-        // the container bounds without pushing the button down.
-        if (showLanguagePopup) {
+        // Positioned at the top of the container, above the button.
+        // Always composed (visible/hidden via showLanguagePopup flag)
+        // so touch targets are always within the container bounds.
+        AnimatedVisibility(
+            visible = showLanguagePopup,
+            enter = fadeIn() + scaleIn(initialScale = 0.8f),
+            exit = fadeOut() + scaleOut(targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
             Box(
                 modifier = Modifier
-                    .offset(y = (-160).dp)
+                    .offset(y = 16.dp)
                     .width(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF1E2129).copy(alpha = 0.97f))
