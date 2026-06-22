@@ -163,33 +163,38 @@ fun OverlayUi(
     // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
     // When the language popup is visible, it expands both upward and wider to accommodate it.
     // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
+    // Width expands instantly (no animation) when popup appears so touch targets
+    // are immediately within bounds — the popup's own AnimatedVisibility handles visuals.
     val containerWidth by animateDpAsState(
         targetValue = when {
             showLanguagePopup -> 180.dp
             isExpanded -> 130.dp
             else -> 56.dp
         },
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+        animationSpec = if (showLanguagePopup) snap() else spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
         label = "containerWidth"
     )
     val containerHeight by animateDpAsState(
         targetValue = if (showLanguagePopup) 210.dp else 56.dp,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+        animationSpec = if (showLanguagePopup) snap() else spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
         label = "containerHeight"
     )
 
+    // Use a Box that does NOT clip to bounds so that children rendered
+    // outside the container's animated bounds remain tappable (the
+    // ComposeView itself has clipChildren=false already at the window level).
     Box(
             modifier = Modifier
                 .width(containerWidth)
                 .height(containerHeight)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                if (showLanguagePopup) {
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    // Only close popup on clicks that aren't consumed by popup items
+                    enabled = showLanguagePopup
+                ) {
                     showLanguagePopup = false
                 }
-            }
     ) {
         // ── Language Popup (inline composable, no Dialog/Popup) ─
         // Rendered as an AnimatedVisibility overlay within the
