@@ -1,12 +1,7 @@
 package com.example.whisperflow.overlay
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.*
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.Crossfade
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
@@ -172,17 +167,12 @@ fun OverlayUi(
     val popupTargetLanguage = remember { mutableStateOf(initialTargetLanguage) }
 
     // ── Container sizing ──
-    // At rest (IDLE state, no popup), the container is 56dp (matches the mic button).
-    // When the language popup is visible, it expands both upward and wider to accommodate it.
-    // When in RECORDING_TAP mode, it expands width to accommodate the action buttons.
-    // Width/height are set instantly (no animation) to avoid visual glitching where
-    // the popup and container animate at different rates.
-    val containerWidth = when {
-        showLanguagePopup -> 180.dp
-        isExpanded -> 130.dp
-        else -> 56.dp
-    }
-    val containerHeight = if (showLanguagePopup) OVERLAY_OPENED_HEIGHT_DP.dp else OVERLAY_CLOSED_HEIGHT_DP.dp
+    // ALWAYS keep the container at the expanded size (210dp x 180dp) so the
+    // WindowManager never needs to resize the window when the language popup
+    // toggles. This eliminates the system-level window resize animation.
+    // Content inside (popup, rings, capsule) positions itself via Alignment.
+    val containerWidth = if (isExpanded) 130.dp else 180.dp
+    val containerHeight = OVERLAY_OPENED_HEIGHT_DP.dp
 
     Box(
             modifier = Modifier

@@ -125,7 +125,6 @@ class OverlayManager(
         gravity = Gravity.BOTTOM or Gravity.START
         x = 50
         y = 500
-        windowAnimations = 0
     }
 
     private var floatX = 50f
