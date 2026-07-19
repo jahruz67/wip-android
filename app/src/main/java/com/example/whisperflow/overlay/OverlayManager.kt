@@ -660,7 +660,7 @@ class OverlayManager(
                         }
                         hideDismissTargetView()
                     },
-                    onLanguagePopupVisibilityChanged = { visible ->
+                    onLanguagePopupVisibilityChanged = { _ ->
                         // Force window manager to update layout and size with current params coordinates
                         params.x = floatX.toInt()
                         params.y = floatY.toInt()

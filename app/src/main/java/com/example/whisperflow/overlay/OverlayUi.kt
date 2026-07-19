@@ -335,6 +335,12 @@ fun OverlayUi(
                 .size(72.dp)
                 .align(Alignment.BottomCenter)
                 .pointerInteropFilter { motionEvent ->
+                    // When the language popup is visible, do NOT intercept touches.
+                    // Otherwise the gesture target sits on top and prevents option clicks.
+                    if (showLanguagePopup) {
+                        return@pointerInteropFilter false
+                    }
+
                     // Let TAP mode buttons and spinner handle their own touches
                     if (state == OverlayState.RECORDING_TAP || state == OverlayState.TRANSCRIBING) {
                         return@pointerInteropFilter false
