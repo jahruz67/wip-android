@@ -50,7 +50,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 const val OVERLAY_CLOSED_HEIGHT_DP = 56
-const val OVERLAY_OPENED_HEIGHT_DP = 210
+const val OVERLAY_OPENED_HEIGHT_DP = 216
 const val OVERLAY_POPUP_HEIGHT_DIFF_DP = OVERLAY_OPENED_HEIGHT_DP - OVERLAY_CLOSED_HEIGHT_DP
 
 enum class OverlayState { IDLE, RECORDING_HOLD, RECORDING_TAP, TRANSCRIBING }
